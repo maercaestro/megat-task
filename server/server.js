@@ -2,14 +2,9 @@ import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import { OpenAI } from 'openai'
-import { Server } from "@modelcontextprotocol/sdk/server/index.js"
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js"
-import { z } from "zod"
-import { ExpressServerTransport } from './mcp.js'
 
 dotenv.config()
 
-// Express setup
 const app = express()
 app.use(cors())
 app.use(express.json())
@@ -19,153 +14,92 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 })
 
-// Initialize Server
-const server = new Server(
-  {
-    name: "MegatTask",
-    version: "1.0.0"
-  },
-  {
-    capabilities: {
-      tools: {}
-    }
-  }
-)
+// Brave Search function
+async function performBraveSearch(query) {
+  try {
+    const url = new URL('https://api.search.brave.com/res/v1/web/search')
+    url.searchParams.set('q', query)
+    url.searchParams.set('count', '5')
 
-// Define tool schemas
-const WEB_SEARCH_TOOL = {
-  name: "search",
-  description: "Performs a web search using Brave Search API",
-  inputSchema: {
-    type: "object",
-    properties: {
-      query: {
-        type: "string",
-        description: "Search query"
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json',
+        'Accept-Encoding': 'gzip',
+        'X-Subscription-Token': process.env.BRAVE_API_KEY
       }
-    },
-    required: ["query"]
+    })
+
+    if (!response.ok) {
+      throw new Error(`Brave API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+    return (data.web?.results || []).map(result => ({
+      title: result.title || '',
+      description: result.description || '',
+      url: result.url || ''
+    }))
+  } catch (error) {
+    console.error('Search error:', error)
+    return []
   }
 }
 
-// Set up MCP request handlers
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [WEB_SEARCH_TOOL]
-}))
-
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  try {
-    const { name, arguments: args } = request.params
-
-    if (name === "search" && args?.query) {
-      const url = new URL('https://api.search.brave.com/res/v1/web/search')
-      url.searchParams.set('q', args.query)
-      url.searchParams.set('count', '10')
-
-      const response = await fetch(url, {
-        headers: {
-          'Accept': 'application/json',
-          'Accept-Encoding': 'gzip',
-          'X-Subscription-Token': process.env.BRAVE_API_KEY
-        }
-      })
-
-      if (!response.ok) {
-        throw new Error(`Brave API error: ${response.status}`)
-      }
-
-      const data = await response.json()
-      const results = (data.web?.results || []).map(result => ({
-        title: result.title || '',
-        description: result.description || '',
-        url: result.url || ''
-      }))
-
-      const formattedResults = results.map(r =>
-        `Title: ${r.title}\nDescription: ${r.description}\nURL: ${r.url}`
-      ).join('\n\n')
-
-      return {
-        content: [{ type: "text", text: formattedResults }],
-        isError: false
-      }
-    }
-
-    return {
-      content: [{ type: "text", text: "Unknown tool or invalid arguments" }],
-      isError: true
-    }
-  } catch (error) {
-    return {
-      content: [{ type: "text", text: `Error: ${error.message}` }],
-      isError: true
-    }
-  }
-})
-
-// Server initialization
-const expressTransport = new ExpressServerTransport()
-let mcpConnection
-
-async function initializeMcpServer() {
-  try {
-    expressTransport.setRequestHandler((reqPayload) => 
-      server.handleRequest(reqPayload)
-    )
-    mcpConnection = await server.connect(expressTransport)
-    console.log('MCP Server connected successfully')
-  } catch (error) {
-    console.error('Failed to initialize MCP server:', error)
-    process.exit(1)
-  }
-}
-
-// Add MCP endpoint
-app.post('/mcp', (req, res) => expressTransport.handleRequest(req, res))
-
-// Update the execute-task endpoint to use the MCP endpoint
+// Task execution endpoint
 app.post('/api/execute-task', async (req, res) => {
   try {
     const { text } = req.body
     
-    // ...existing analysis code...
+    // First, analyze if search is needed
+    const analysisResponse = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: "You are a task analyzer. Determine if this task requires web search for current information. Return only 'yes' or 'no'."
+        },
+        {
+          role: "user",
+          content: text
+        }
+      ]
+    })
+
+    const needsSearch = analysisResponse.choices[0].message.content.toLowerCase() === 'yes'
+    let searchResults = []
 
     if (needsSearch) {
       console.log('Performing search for:', text)
-      
-      const response = await fetch('http://localhost:3000/mcp', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          type: "call_tool",
-          params: {
-            name: "search",
-            arguments: { query: text }
-          }
-        })
-      })
-
-      if (!response.ok) {
-        throw new Error('Search request failed')
-      }
-
-      const searchData = await response.json()
-      if (!searchData.isError && searchData.content?.[0]) {
-        searchResults = searchData.content[0].text.split('\n\n')
-          .map(result => {
-            const lines = result.split('\n')
-            return {
-              title: lines[0].replace('Title: ', ''),
-              description: lines[1].replace('Description: ', ''),
-              url: lines[2].replace('URL: ', '')
-            }
-          })
-      }
+      searchResults = await performBraveSearch(text)
     }
 
-    // ...rest of your execute-task endpoint code...
+    // Execute task with context
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are an AI task executor that helps complete tasks efficiently. 
+                   If search results are provided, use them as context for the task.
+                   Provide structured, detailed responses.`
+        },
+        ...(searchResults.length > 0 ? [{
+          role: "assistant",
+          content: `Here's what I found from searching:\n${JSON.stringify(searchResults, null, 2)}`
+        }] : []),
+        {
+          role: "user",
+          content: `Execute this task: ${text}`
+        }
+      ]
+    })
+
+    res.json({
+      taskId: Date.now(),
+      originalTask: text,
+      response: completion.choices[0].message.content,
+      searchResults
+    })
   } catch (error) {
     console.error('Detailed Error:', error)
     res.status(500).json({ 
@@ -175,20 +109,110 @@ app.post('/api/execute-task', async (req, res) => {
   }
 })
 
-// Start server
-async function startServer() {
-  await initializeMcpServer()
-  
-  const PORT = process.env.PORT || 3000
-  app.listen(PORT, () => {
-    console.log(`Express server running on port ${PORT}`)
-    console.log('MCP Server ready for tool requests')
-  })
-}
+// Add task parsing endpoint
+app.post('/api/analyze-task', async (req, res) => {
+  try {
+    const { text } = req.body
+    const currentDate = new Date().toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    })
 
-startServer().catch(error => {
-  console.error('Server startup failed:', error)
-  process.exit(1)
+    const response = await openai.chat.completions.create({
+      model: "gpt-4",
+      messages: [
+        {
+          role: "system",
+          content: `You are a task analyzer that helps categorize and enhance tasks. Today's date is ${currentDate}.
+            For each task:
+            1) Extract and clean up the task name into a clear, concise action item
+            2) Determine if it's Work or Personal
+            3) Set priority level (High/Medium/Low)
+            4) Determine if it can be automated with AI (tasks like writing, research, analysis can be done with AI)
+            5) Suggest due date based on urgency relative to today:
+               - Use "today" for urgent tasks
+               - Use "tomorrow" for soon tasks
+               - Use "+3 days" to "+7 days" for medium-term tasks
+               - Use "+14 days" or "+30 days" for long-term tasks
+            6) Provide brief analysis of why these choices were made`
+        },
+        {
+          role: "user",
+          content: text
+        }
+      ],
+      functions: [
+        {
+          name: "analyze_task",
+          description: "Analyze a task and return metadata about it",
+          parameters: {
+            type: "object",
+            properties: {
+              taskName: {
+                type: "string",
+                description: "A clean, concise version of the task"
+              },
+              section: {
+                type: "string",
+                enum: ["Work", "Personal"]
+              },
+              priority: {
+                type: "string",
+                enum: ["High", "Medium", "Low"]
+              },
+              aiExecutable: {
+                type: "boolean",
+                description: "Whether this task can be automated or assisted by AI"
+              },
+              dueDate: {
+                type: "string",
+                description: "Suggested due date for the task"
+              },
+              analysis: {
+                type: "string",
+                description: "Brief analysis of why these choices were made"
+              }
+            },
+            required: ["taskName", "section", "priority", "aiExecutable", "dueDate", "analysis"]
+          }
+        }
+      ],
+      function_call: { name: "analyze_task" }
+    })
+
+    const result = JSON.parse(response.choices[0].message.function_call.arguments)
+
+    // Convert relative dates to actual dates
+    if (result.dueDate) {
+      const today = new Date()
+      if (result.dueDate === 'today') {
+        result.dueDate = today.toISOString()
+      } else if (result.dueDate === 'tomorrow') {
+        today.setDate(today.getDate() + 1)
+        result.dueDate = today.toISOString()
+      } else if (result.dueDate.startsWith('+')) {
+        const days = parseInt(result.dueDate.match(/\d+/)[0])
+        today.setDate(today.getDate() + days)
+        result.dueDate = today.toISOString()
+      }
+    }
+
+    res.json(result)
+  } catch (error) {
+    console.error('Error:', error)
+    res.status(500).json({ 
+      error: 'Failed to analyze task',
+      details: error.message 
+    })
+  }
+})
+
+// Start server
+const PORT = process.env.PORT || 3000
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`)
 })
 
 export default app
