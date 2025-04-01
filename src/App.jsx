@@ -12,6 +12,7 @@ import {
   Cog6ToothIcon,
   ClipboardDocumentIcon // Add this import
 } from '@heroicons/react/24/solid'
+import ReactMarkdown from 'react-markdown' // Add to existing imports at top
 
 function App() {
   const [todos, setTodos] = useState(() => {
@@ -354,7 +355,6 @@ function App() {
                         <button
                           onClick={() => {
                             navigator.clipboard.writeText(draft.response);
-                            // Optional: Show feedback
                             const btn = document.getElementById(`copy-btn-${index}`);
                             btn.innerHTML = "Copied!";
                             setTimeout(() => {
@@ -372,8 +372,8 @@ function App() {
                         </div>
                       </div>
                     </div>
-                    <div className="text-sm text-gray-600 whitespace-pre-wrap">
-                      {draft.response}
+                    <div className="prose prose-sm max-w-none text-sm text-gray-600">
+                      <ReactMarkdown>{draft.response}</ReactMarkdown>
                     </div>
                     {draft.searchResults?.length > 0 && (
                       <div className="mt-2 pt-2 border-t border-gray-100">
@@ -540,34 +540,39 @@ function App() {
   return (
     <div className="fixed inset-0 flex overflow-hidden bg-gradient-to-br from-emerald-400 to-blue-500">
       {/* Left sidebar */}
-      <div className="w-1/4 flex-none bg-white/90 backdrop-blur-sm shadow-lg p-4 overflow-y-auto">
+      <div className="w-1/5 flex-none bg-white/90 backdrop-blur-sm shadow-lg p-4 overflow-y-auto">
         {/* Logo and title */}
         <div className="flex items-center gap-3 px-4 mb-8">
           <img 
             src={logo}
             alt="Task Manager Logo" 
-            className="h-8 w-8 rounded-lg object-cover"
+            className="h-20 w-20 rounded-lg object-cover"
           />
-          <h2 className="text-lg md:text-xl font-bold text-blue-800 truncate">
+          <p3 className="font-bold text-blue-800 truncate">
             Megat-Task
-          </h2>
+          </p3>
         </div>
         {/* Navigation */}
-        <nav className="space-y-1">
+        <nav className="space-y-2">
           {navItems.map(item => {
             const Icon = item.icon
             return (
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors duration-300
+                className={`w-full flex items-center gap-3 px-6 py-4 text-base font-medium rounded-xl
+                  transition-all duration-300 hover:translate-x-1
                   ${activeTab === item.id 
-                    ? 'bg-white/50 text-blue-600 shadow-md' 
-                    : 'bg-transparent text-gray-600 hover:bg-white/30'
+                    ? 'text-blue-600 bg-blue-50/50 shadow-sm translate-x-2' 
+                    : 'text-gray-700 hover:bg-white-50/50'
                   }`}
               >
-                <Icon className="h-5 w-5" />
-                {item.label}
+                <Icon className={`h-5 w-5 ${
+                  activeTab === item.id 
+                    ? 'text-blue-600' 
+                    : 'text-gray-600'
+                }`} />
+                <span>{item.label}</span>
               </button>
             )
           })}
@@ -575,7 +580,7 @@ function App() {
       </div>
 
       {/* Main content */}
-      <div className="w-3/4 flex bg-white/100 backdrop-blur-sm shadow-lg flex-col overflow-y-auto">
+      <div className="w-4/5 flex bg-white/100 backdrop-blur-sm shadow-lg flex-col overflow-y-auto">
         {/* Header */}
         <div className="bg-gray-100 shadow-sm flex-none"> 
           <div className="w-full px-8 py-4">
@@ -610,14 +615,16 @@ function App() {
                       id: Date.now(),
                       text: inputValue,
                       completed: false,
-                      section: 'Personal',
-                      priority: 'Medium',
-                      aiExecutable: false,
-                      dueDate: new Date().toISOString()
+                      section: 'Personal',  // Default values
+                      priority: 'Low',      // Simplified to basic priority
+                      aiExecutable: false,  // Mark as manual task
+                      dueDate: null        // No default due date
                     }]);
                     setInputValue('');
                   }}
-                  className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-gray-700 text-sm rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 flex items-center gap-2 transition-colors duration-300"
+                  className="px-4 py-2 bg-gray-200 hover:bg-gray-500 text-gray-700 text-sm rounded-lg 
+                    focus:outline-none focus:ring-2 focus:ring-gray-500 flex items-center gap-2 
+                    transition-colors duration-300"
                 >
                   <PlusIcon className="h-4 w-4" />
                   Add Task
