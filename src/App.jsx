@@ -31,6 +31,9 @@ function App() {
   const [isExecuting, setIsExecuting] = useState(false)
   const [executionResult, setExecutionResult] = useState(null)
   const [isResultPanelOpen, setIsResultPanelOpen] = useState(false)
+  const [chatMessages, setChatMessages] = useState([])
+  const [chatInput, setChatInput] = useState('')
+  const [taskDrafts, setTaskDrafts] = useState([])
 
   // Filter tasks based on active tab
   const getFilteredTasks = () => {
@@ -84,7 +87,7 @@ function App() {
   const executeAiTask = async (task) => {
     try {
       setIsExecuting(true)
-      setIsResultPanelOpen(true)
+      setIsResultPanelOpen(false)
       
       const response = await fetch('http://localhost:3000/api/execute-task', {
         method: 'POST',
@@ -93,7 +96,7 @@ function App() {
         },
         body: JSON.stringify({ 
           text: task.text,
-          context: task.analysis // Send analysis context to help with execution
+          context: task.analysis
         })
       })
       
@@ -102,6 +105,15 @@ function App() {
       }
 
       const result = await response.json()
+      
+      // Save to task drafts
+      setTaskDrafts(prev => [{
+        timestamp: Date.now(),
+        task: task.text,
+        response: result.response,
+        searchResults: result.searchResults
+      }, ...prev])
+
       setExecutionResult({
         originalTask: task.text,
         searchResults: result.searchResults || [],
@@ -187,9 +199,161 @@ function App() {
             <p className="text-gray-500">Created by Abu Huzaifah</p>
           </div>
         </div>
-      );
+      )
     }
 
+    if (activeTab === 'aI') {
+      return (
+        <div className="flex-1 flex flex-col">
+          {/* Scrollable Task Bar */}
+          <div className="flex-none p-4 bg-gray-50 border-b border-gray-200">
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+              {getFilteredTasks().filter(todo => todo.aiExecutable).map(todo => (
+                <button
+                  key={todo.id}
+                  onClick={() => executeAiTask(todo)}
+                  disabled={isExecuting}
+                  className="flex-none px-4 py-2 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 flex items-center gap-2"
+                >
+                  <span className="text-sm text-gray-700 whitespace-nowrap">{todo.text}</span>
+                  {isExecuting ? (
+                    <svg className="animate-spin h-4 w-4 text-gray-500" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                  ) : (
+                    <ChatBubbleBottomCenterIcon className="h-4 w-4 text-gray-500" />
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Main Content Area */}
+          <div className="flex-1 flex flex-col overflow-y-auto">
+            {/* Task Drafts */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {taskDrafts.map((draft, index) => (
+                <div key={index} className="bg-white rounded-lg shadow-sm p-4">
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="text-sm font-medium text-gray-900">{draft.task}</div>
+                    <div className="text-xs text-gray-500">
+                      {new Date(draft.timestamp).toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="text-sm text-gray-600 whitespace-pre-wrap">
+                    {draft.response}
+                  </div>
+                  {draft.searchResults?.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-gray-100">
+                      <div className="text-xs font-medium text-gray-700 mb-1">Sources:</div>
+                      <div className="space-y-1">
+                        {draft.searchResults.map((result, idx) => (
+                          <a
+                            key={idx}
+                            href={result.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block text-xs text-blue-500 hover:underline truncate"
+                          >
+                            {result.title}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Chat Interface */}
+            <div className="flex-none border-t border-gray-200 bg-white p-4">
+              <div className="mb-4 max-h-32 overflow-y-auto">
+                {chatMessages.map((message, index) => (
+                  <div 
+                    key={index} 
+                    className={`mb-2 p-2 rounded-lg ${
+                      message.role === 'user' 
+                        ? 'bg-blue-100 ml-12' 
+                        : 'bg-gray-100 mr-12'
+                    }`}
+                  >
+                    <div className="text-sm">
+                      {message.content}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              
+              <form 
+                onSubmit={async (e) => {
+                  e.preventDefault()
+                  if (!chatInput.trim()) return
+
+                  const newMessage = { role: 'user', content: chatInput }
+                  setChatMessages(prev => [...prev, newMessage])
+                  const currentInput = chatInput
+                  setChatInput('')
+
+                  try {
+                    const response = await fetch('http://localhost:3000/api/execute-task', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({ 
+                        text: currentInput,
+                        context: chatMessages
+                      })
+                    })
+
+                    if (!response.ok) throw new Error('Failed to get response')
+                    const result = await response.json()
+                    
+                    setChatMessages(prev => [...prev, {
+                      role: 'assistant',
+                      content: result.response
+                    }])
+
+                    if (result.searchResults?.length > 0) {
+                      setTaskDrafts(prev => [{
+                        timestamp: Date.now(),
+                        task: currentInput,
+                        response: result.response,
+                        searchResults: result.searchResults
+                      }, ...prev])
+                    }
+                  } catch (error) {
+                    console.error('Chat error:', error)
+                    setChatMessages(prev => [...prev, {
+                      role: 'assistant',
+                      content: 'Sorry, I encountered an error processing your request.'
+                    }])
+                  }
+                }}
+                className="flex gap-2"
+              >
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Ask a question or give a task..."
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-500 text-gray-700 rounded-lg hover:bg-blue-600 transition-colors"
+                >
+                  Send
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    // Regular task list view for other tabs
     return (
       <div className="flex-1 overflow-y-auto px-8 py-8">
         <div className="space-y-4">
@@ -324,7 +488,7 @@ function App() {
       </div>
 
       {/* Main content */}
-      <div className="w-3/4 flex bg-white/100 backdrop-blur-sm shadow-lg flex-col overflow-hidden">
+      <div className="w-3/4 flex bg-white/100 backdrop-blur-sm shadow-lg flex-col overflow-y-auto">
         {/* Header */}
         <div className="bg-gray-100 shadow-sm flex-none"> 
           <div className="w-full px-8 py-4">
@@ -338,7 +502,7 @@ function App() {
         {renderContent()}
 
         {/* Input area - show only if not in settings */}
-        {activeTab !== 'settings' && (
+        {activeTab !== 'settings' && activeTab !== 'aI' && (
           <div className="border-t bg-gray-100 p-4 flex-none">
             <form onSubmit={handleSubmit} className="px-4">
               <div className="flex gap-4">
