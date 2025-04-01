@@ -9,7 +9,8 @@ import {
   CalendarIcon,
   SparklesIcon,
   XMarkIcon,
-  Cog6ToothIcon
+  Cog6ToothIcon,
+  ClipboardDocumentIcon // Add this import
 } from '@heroicons/react/24/solid'
 
 function App() {
@@ -34,6 +35,9 @@ function App() {
   const [chatMessages, setChatMessages] = useState([])
   const [chatInput, setChatInput] = useState('')
   const [taskDrafts, setTaskDrafts] = useState([])
+  const [completedAiTasks, setCompletedAiTasks] = useState(new Set())
+  const [activeTaskId, setActiveTaskId] = useState(null)
+  const [taskConversations, setTaskConversations] = useState({})
 
   // Filter tasks based on active tab
   const getFilteredTasks = () => {
@@ -83,11 +87,25 @@ function App() {
     }
   }
 
-  // Update the executeAiTask function (task execution)
+  // Add new function to handle task selection
+  const handleTaskSelect = (task) => {
+    setActiveTaskId(task.id)
+    // Find existing draft for this task
+    const taskDraft = taskDrafts.find(draft => draft.taskId === task.id)
+    if (taskDraft) {
+      // Show existing conversation if any
+      setChatMessages(taskConversations[task.id] || [])
+    } else if (!completedAiTasks.has(task.id)) {
+      // Execute task if not completed
+      executeAiTask(task)
+    }
+  }
+
+  // Update executeAiTask function
   const executeAiTask = async (task) => {
     try {
       setIsExecuting(true)
-      setIsResultPanelOpen(false)
+      setActiveTaskId(task.id)
       
       const response = await fetch('http://localhost:3000/api/execute-task', {
         method: 'POST',
@@ -106,19 +124,32 @@ function App() {
 
       const result = await response.json()
       
-      // Save to task drafts
+      // Save initial conversation
+      const initialConversation = [
+        { role: 'user', content: task.text },
+        { role: 'assistant', content: result.response }
+      ]
+      
+      setTaskConversations(prev => ({
+        ...prev,
+        [task.id]: initialConversation
+      }))
+      
+      // Save to task drafts with taskId
       setTaskDrafts(prev => [{
+        taskId: task.id,
         timestamp: Date.now(),
         task: task.text,
         response: result.response,
         searchResults: result.searchResults
       }, ...prev])
 
-      setExecutionResult({
-        originalTask: task.text,
-        searchResults: result.searchResults || [],
-        response: result.response
-      })
+      // Set chat messages for this task
+      setChatMessages(initialConversation)
+      
+      // Mark task as completed
+      setCompletedAiTasks(prev => new Set([...prev, task.id]))
+
     } catch (error) {
       console.error('Error:', error)
       setError('Failed to execute task with AI')
@@ -182,6 +213,81 @@ function App() {
     }))
   }
 
+  const handleChatSubmit = async (e) => {
+    e.preventDefault()
+    if (!chatInput.trim() || !activeTaskId) return
+
+    try {
+      // Add user message to conversation
+      const newUserMessage = { role: 'user', content: chatInput }
+      setChatMessages(prev => [...prev, newUserMessage])
+      
+      // Update task conversations
+      const updatedMessages = [...(taskConversations[activeTaskId] || []), newUserMessage]
+      setTaskConversations(prev => ({
+        ...prev,
+        [activeTaskId]: updatedMessages
+      }))
+
+      // Clear input right away
+      setChatInput('')
+
+      // Make API call
+      const response = await fetch('http://localhost:3000/api/execute-task', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          text: chatInput,
+          context: updatedMessages,
+          taskId: activeTaskId
+        })
+      })
+
+      if (!response.ok) throw new Error('Failed to get response')
+      
+      const result = await response.json()
+      
+      // Add AI response to conversation
+      const aiMessage = { role: 'assistant', content: result.response }
+      const finalMessages = [...updatedMessages, aiMessage]
+      
+      // Update conversations and current chat
+      setTaskConversations(prev => ({
+        ...prev,
+        [activeTaskId]: finalMessages
+      }))
+      setChatMessages(finalMessages)
+
+      // Update task draft if there are search results
+      if (result.searchResults?.length > 0) {
+        setTaskDrafts(prev => prev.map(draft => 
+          draft.taskId === activeTaskId 
+            ? {
+                ...draft,
+                response: result.response,
+                searchResults: [...(draft.searchResults || []), ...result.searchResults]
+              }
+            : draft
+        ))
+      }
+
+    } catch (error) {
+      console.error('Chat error:', error)
+      // Show error in chat
+      const errorMessage = { 
+        role: 'assistant', 
+        content: 'Sorry, I encountered an error processing your request.' 
+      }
+      setChatMessages(prev => [...prev, errorMessage])
+      setTaskConversations(prev => ({
+        ...prev,
+        [activeTaskId]: [...(prev[activeTaskId] || []), errorMessage]
+      }))
+    }
+  }
+
   const navItems = [
     { id: 'inbox', icon: InboxIcon, label: 'Inbox' },
     { id: 'today', icon: CalendarIcon, label: 'Today' },
@@ -211,16 +317,21 @@ function App() {
               {getFilteredTasks().filter(todo => todo.aiExecutable).map(todo => (
                 <button
                   key={todo.id}
-                  onClick={() => executeAiTask(todo)}
-                  disabled={isExecuting}
-                  className="flex-none px-4 py-2 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 flex items-center gap-2"
+                  onClick={() => handleTaskSelect(todo)}
+                  disabled={isExecuting && activeTaskId === todo.id}
+                  className={`flex-none px-4 py-2 bg-white rounded-lg shadow-sm hover:shadow-md 
+                    transition-all duration-200 flex items-center gap-2
+                    ${activeTaskId === todo.id ? 'ring-2 ring-blue-500' : ''}
+                    ${completedAiTasks.has(todo.id) ? 'opacity-75' : ''}`}
                 >
                   <span className="text-sm text-gray-700 whitespace-nowrap">{todo.text}</span>
-                  {isExecuting ? (
+                  {isExecuting && activeTaskId === todo.id ? (
                     <svg className="animate-spin h-4 w-4 text-gray-500" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
+                  ) : completedAiTasks.has(todo.id) ? (
+                    <CheckIcon className="h-4 w-4 text-green-500" />
                   ) : (
                     <ChatBubbleBottomCenterIcon className="h-4 w-4 text-gray-500" />
                   )}
@@ -233,37 +344,57 @@ function App() {
           <div className="flex-1 flex flex-col overflow-y-auto">
             {/* Task Drafts */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {taskDrafts.map((draft, index) => (
-                <div key={index} className="bg-white rounded-lg shadow-sm p-4">
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="text-sm font-medium text-gray-900">{draft.task}</div>
-                    <div className="text-xs text-gray-500">
-                      {new Date(draft.timestamp).toLocaleString()}
-                    </div>
-                  </div>
-                  <div className="text-sm text-gray-600 whitespace-pre-wrap">
-                    {draft.response}
-                  </div>
-                  {draft.searchResults?.length > 0 && (
-                    <div className="mt-2 pt-2 border-t border-gray-100">
-                      <div className="text-xs font-medium text-gray-700 mb-1">Sources:</div>
-                      <div className="space-y-1">
-                        {draft.searchResults.map((result, idx) => (
-                          <a
-                            key={idx}
-                            href={result.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block text-xs text-blue-500 hover:underline truncate"
-                          >
-                            {result.title}
-                          </a>
-                        ))}
+              {taskDrafts
+                .filter(draft => !activeTaskId || draft.taskId === activeTaskId)
+                .map((draft, index) => (
+                  <div key={index} className="bg-white rounded-lg shadow-sm p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <div className="text-sm font-medium text-gray-900">{draft.task}</div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(draft.response);
+                            // Optional: Show feedback
+                            const btn = document.getElementById(`copy-btn-${index}`);
+                            btn.innerHTML = "Copied!";
+                            setTimeout(() => {
+                              btn.innerHTML = "Copy";
+                            }, 2000);
+                          }}
+                          id={`copy-btn-${index}`}
+                          className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors"
+                        >
+                          <ClipboardDocumentIcon className="h-3 w-3" />
+                          <span>Copy</span>
+                        </button>
+                        <div className="text-xs text-gray-500">
+                          {new Date(draft.timestamp).toLocaleString()}
+                        </div>
                       </div>
                     </div>
-                  )}
-                </div>
-              ))}
+                    <div className="text-sm text-gray-600 whitespace-pre-wrap">
+                      {draft.response}
+                    </div>
+                    {draft.searchResults?.length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-gray-100">
+                        <div className="text-xs font-medium text-gray-700 mb-1">Sources:</div>
+                        <div className="space-y-1">
+                          {draft.searchResults.map((result, idx) => (
+                            <a
+                              key={idx}
+                              href={result.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block text-xs text-blue-500 hover:underline truncate"
+                            >
+                              {result.title}
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
             </div>
 
             {/* Chat Interface */}
@@ -286,51 +417,7 @@ function App() {
               </div>
               
               <form 
-                onSubmit={async (e) => {
-                  e.preventDefault()
-                  if (!chatInput.trim()) return
-
-                  const newMessage = { role: 'user', content: chatInput }
-                  setChatMessages(prev => [...prev, newMessage])
-                  const currentInput = chatInput
-                  setChatInput('')
-
-                  try {
-                    const response = await fetch('http://localhost:3000/api/execute-task', {
-                      method: 'POST',
-                      headers: {
-                        'Content-Type': 'application/json',
-                      },
-                      body: JSON.stringify({ 
-                        text: currentInput,
-                        context: chatMessages
-                      })
-                    })
-
-                    if (!response.ok) throw new Error('Failed to get response')
-                    const result = await response.json()
-                    
-                    setChatMessages(prev => [...prev, {
-                      role: 'assistant',
-                      content: result.response
-                    }])
-
-                    if (result.searchResults?.length > 0) {
-                      setTaskDrafts(prev => [{
-                        timestamp: Date.now(),
-                        task: currentInput,
-                        response: result.response,
-                        searchResults: result.searchResults
-                      }, ...prev])
-                    }
-                  } catch (error) {
-                    console.error('Chat error:', error)
-                    setChatMessages(prev => [...prev, {
-                      role: 'assistant',
-                      content: 'Sorry, I encountered an error processing your request.'
-                    }])
-                  }
-                }}
+                onSubmit={handleChatSubmit}
                 className="flex gap-2"
               >
                 <input
