@@ -45,12 +45,17 @@ async function performBraveSearch(query) {
   }
 }
 
-// Task execution endpoint
+// Task execution endpoint with streaming
 app.post('/api/execute-task', async (req, res) => {
   try {
-    const { text } = req.body
+    const { text, context, taskId } = req.body
     
-    // First, analyze if search is needed
+    // Set up headers for streaming
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    
+    // First, analyze if search is needed (non-streaming for this part)
     const analysisResponse = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -71,41 +76,86 @@ app.post('/api/execute-task', async (req, res) => {
     if (needsSearch) {
       console.log('Performing search for:', text)
       searchResults = await performBraveSearch(text)
+      
+      // Send search results immediately
+      res.write(`data: ${JSON.stringify({ 
+        type: 'search_results', 
+        searchResults 
+      })}\n\n`)
     }
 
-    // Execute task with context
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
+    // Prepare messages for the chat - use context if available
+    const messages = context && Array.isArray(context) ? 
+      [...context] : 
+      [
         {
           role: "system",
           content: `You are an AI task executor that helps complete tasks efficiently. 
                    If search results are provided, use them as context for the task.
                    Provide structured, detailed responses.`
-        },
-        ...(searchResults.length > 0 ? [{
-          role: "assistant",
-          content: `Here's what I found from searching:\n${JSON.stringify(searchResults, null, 2)}`
-        }] : []),
-        {
-          role: "user",
-          content: `Execute this task: ${text}`
         }
       ]
+    
+    // Add search results to context if available
+    if (searchResults.length > 0 && !context) {
+      messages.push({
+        role: "assistant",
+        content: `Here's what I found from searching:\n${JSON.stringify(searchResults, null, 2)}`
+      })
+    }
+    
+    // Add the user's request
+    messages.push({
+      role: "user",
+      content: context ? text : `Execute this task: ${text}`
     })
 
-    res.json({
-      taskId: Date.now(),
-      originalTask: text,
-      response: completion.choices[0].message.content,
-      searchResults
+    // Execute task with streaming
+    const stream = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: messages,
+      stream: true,
     })
+
+    let fullResponse = ''
+    
+    // Process each chunk as it arrives
+    for await (const chunk of stream) {
+      // Extract content from chunk
+      const content = chunk.choices[0]?.delta?.content || ''
+      if (content) {
+        fullResponse += content
+        
+        // Send the chunk to the client
+        res.write(`data: ${JSON.stringify({ 
+          type: 'content_chunk', 
+          content,
+          taskId
+        })}\n\n`)
+      }
+    }
+
+    // Send completion message
+    res.write(`data: ${JSON.stringify({ 
+      type: 'completion',
+      taskId: taskId || Date.now(),
+      originalTask: text,
+      response: fullResponse,
+      searchResults
+    })}\n\n`)
+    
+    // End the response
+    res.end()
+    
   } catch (error) {
     console.error('Detailed Error:', error)
-    res.status(500).json({ 
+    // Send error as event stream data
+    res.write(`data: ${JSON.stringify({ 
+      type: 'error',
       error: 'Failed to execute task with AI',
       details: error.message 
-    })
+    })}\n\n`)
+    res.end()
   }
 })
 

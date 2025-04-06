@@ -102,12 +102,37 @@ function App() {
     }
   }
 
-  // Update executeAiTask function
+  // Update the executeAiTask function to handle streaming
   const executeAiTask = async (task) => {
     try {
       setIsExecuting(true)
       setActiveTaskId(task.id)
       
+      // Initialize a draft for this task if it doesn't exist
+      setTaskDrafts(prev => {
+        // Check if a draft already exists for this task
+        if (!prev.find(draft => draft.taskId === task.id)) {
+          return [{
+            taskId: task.id,
+            timestamp: Date.now(),
+            task: task.text,
+            response: '', // Start with an empty response
+            searchResults: []
+          }, ...prev]
+        }
+        return prev
+      })
+      
+      // Set initial conversation
+      const initialMessage = { role: 'user', content: task.text }
+      setTaskConversations(prev => ({
+        ...prev,
+        [task.id]: [initialMessage]
+      }))
+      
+      setChatMessages([initialMessage])
+      
+      // Create fetch request with proper headers for streaming
       const response = await fetch('http://localhost:3000/api/execute-task', {
         method: 'POST',
         headers: {
@@ -115,45 +140,137 @@ function App() {
         },
         body: JSON.stringify({ 
           text: task.text,
-          context: task.analysis
+          context: task.analysis,
+          taskId: task.id
         })
       })
       
       if (!response.ok) {
-        throw new Error('Failed to execute task')
+        throw new Error(`Server error: ${response.status}`)
       }
-
-      const result = await response.json()
       
-      // Save initial conversation
-      const initialConversation = [
-        { role: 'user', content: task.text },
-        { role: 'assistant', content: result.response }
-      ]
+      // Set up event source reader
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
       
-      setTaskConversations(prev => ({
-        ...prev,
-        [task.id]: initialConversation
-      }))
+      let streamedResponse = '' // Accumulate full response
       
-      // Save to task drafts with taskId
-      setTaskDrafts(prev => [{
-        taskId: task.id,
-        timestamp: Date.now(),
-        task: task.text,
-        response: result.response,
-        searchResults: result.searchResults
-      }, ...prev])
-
-      // Set chat messages for this task
-      setChatMessages(initialConversation)
-      
-      // Mark task as completed
-      setCompletedAiTasks(prev => new Set([...prev, task.id]))
-
+      while (true) {
+        const { done, value } = await reader.read()
+        
+        if (done) {
+          break
+        }
+        
+        // Decode the chunk into text
+        const chunk = decoder.decode(value)
+        
+        // Process each event in the chunk (there might be multiple)
+        const events = chunk.split('\n\n').filter(Boolean)
+        
+        for (const eventText of events) {
+          if (eventText.startsWith('data: ')) {
+            const jsonData = eventText.slice(6) // Remove 'data: ' prefix
+            try {
+              const data = JSON.parse(jsonData)
+              
+              // Handle different event types
+              if (data.type === 'search_results') {
+                // Update draft with search results
+                setTaskDrafts(prev => prev.map(draft => 
+                  draft.taskId === task.id 
+                    ? { ...draft, searchResults: data.searchResults }
+                    : draft
+                ))
+              } 
+              else if (data.type === 'content_chunk') {
+                // Append content chunk to the response
+                streamedResponse += data.content
+                
+                // Update draft with the accumulated response
+                setTaskDrafts(prev => prev.map(draft => 
+                  draft.taskId === task.id 
+                    ? { ...draft, response: streamedResponse }
+                    : draft
+                ))
+                
+                // Update conversation with streaming content
+                const assistantMessage = { 
+                  role: 'assistant', 
+                  content: streamedResponse 
+                }
+                
+                // Update the full conversation with latest content
+                setTaskConversations(prev => {
+                  const currentConversation = prev[task.id] || [initialMessage]
+                  // Replace the assistant message if it exists, or add it
+                  if (currentConversation.find(msg => msg.role === 'assistant')) {
+                    return {
+                      ...prev,
+                      [task.id]: currentConversation.map(msg => 
+                        msg.role === 'assistant' ? assistantMessage : msg
+                      )
+                    }
+                  } else {
+                    return {
+                      ...prev,
+                      [task.id]: [...currentConversation, assistantMessage]
+                    }
+                  }
+                })
+                
+                // Update chat messages for active chat view
+                setChatMessages(prev => {
+                  if (prev.find(msg => msg.role === 'assistant')) {
+                    return prev.map(msg => 
+                      msg.role === 'assistant' ? assistantMessage : msg
+                    )
+                  } else {
+                    return [...prev, assistantMessage]
+                  }
+                })
+              }
+              else if (data.type === 'completion') {
+                // Mark task as completed
+                setCompletedAiTasks(prev => new Set([...prev, task.id]))
+                
+                // Ensure we have the final response
+                if (data.response && data.response !== streamedResponse) {
+                  // Update chat and draft with the final complete response
+                  setTaskDrafts(prev => prev.map(draft => 
+                    draft.taskId === task.id 
+                      ? { 
+                          ...draft, 
+                          response: data.response,
+                          searchResults: data.searchResults || draft.searchResults
+                        }
+                      : draft
+                  ))
+                }
+              }
+              else if (data.type === 'error') {
+                throw new Error(data.details || 'Server error')
+              }
+            } catch (e) {
+              console.error('Error parsing event data:', e)
+            }
+          }
+        }
+      }
     } catch (error) {
       console.error('Error:', error)
       setError('Failed to execute task with AI')
+      
+      // Update conversation with error
+      const errorMessage = { 
+        role: 'assistant', 
+        content: 'Sorry, I encountered an error processing your request.' 
+      }
+      setChatMessages(prev => [...prev, errorMessage])
+      setTaskConversations(prev => ({
+        ...prev,
+        [task.id]: [...(prev[task.id] || []), errorMessage]
+      }))
     } finally {
       setIsExecuting(false)
     }
@@ -214,6 +331,7 @@ function App() {
     }))
   }
 
+  // Update the handleChatSubmit function to use streaming
   const handleChatSubmit = async (e) => {
     e.preventDefault()
     if (!chatInput.trim() || !activeTaskId) return
@@ -233,7 +351,7 @@ function App() {
       // Clear input right away
       setChatInput('')
 
-      // Make API call
+      // Create fetch request with proper headers for streaming
       const response = await fetch('http://localhost:3000/api/execute-task', {
         method: 'POST',
         headers: {
@@ -246,34 +364,149 @@ function App() {
         })
       })
 
-      if (!response.ok) throw new Error('Failed to get response')
+      if (!response.ok) throw new Error(`Server error: ${response.status}`)
       
-      const result = await response.json()
+      // Set up event source reader
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
       
-      // Add AI response to conversation
-      const aiMessage = { role: 'assistant', content: result.response }
-      const finalMessages = [...updatedMessages, aiMessage]
+      let streamedResponse = '' // Accumulate full response
       
-      // Update conversations and current chat
-      setTaskConversations(prev => ({
-        ...prev,
-        [activeTaskId]: finalMessages
-      }))
-      setChatMessages(finalMessages)
-
-      // Update task draft if there are search results
-      if (result.searchResults?.length > 0) {
-        setTaskDrafts(prev => prev.map(draft => 
-          draft.taskId === activeTaskId 
-            ? {
-                ...draft,
-                response: result.response,
-                searchResults: [...(draft.searchResults || []), ...result.searchResults]
+      while (true) {
+        const { done, value } = await reader.read()
+        
+        if (done) {
+          break
+        }
+        
+        // Decode the chunk into text
+        const chunk = decoder.decode(value)
+        
+        // Process each event in the chunk (there might be multiple)
+        const events = chunk.split('\n\n').filter(Boolean)
+        
+        for (const eventText of events) {
+          if (eventText.startsWith('data: ')) {
+            const jsonData = eventText.slice(6) // Remove 'data: ' prefix
+            try {
+              const data = JSON.parse(jsonData)
+              
+              // Handle different event types
+              if (data.type === 'search_results') {
+                // Update draft with search results
+                setTaskDrafts(prev => prev.map(draft => 
+                  draft.taskId === activeTaskId 
+                    ? { ...draft, searchResults: data.searchResults }
+                    : draft
+                ))
+              } 
+              else if (data.type === 'content_chunk') {
+                // Append content chunk to the response
+                streamedResponse += data.content
+                
+                // Update draft with the accumulated response
+                setTaskDrafts(prev => prev.map(draft => 
+                  draft.taskId === activeTaskId 
+                    ? { ...draft, response: streamedResponse }
+                    : draft
+                ))
+                
+                // Update conversation with streaming content
+                const assistantMessage = { 
+                  role: 'assistant', 
+                  content: streamedResponse 
+                }
+                
+                // Update the full conversation with latest content
+                setTaskConversations(prev => {
+                  const currentConversation = prev[activeTaskId] || []
+                  // Replace the assistant message if it exists, or add it
+                  if (currentConversation.find(msg => msg.role === 'assistant' && msg !== newUserMessage)) {
+                    return {
+                      ...prev,
+                      [activeTaskId]: currentConversation.map(msg => 
+                        msg.role === 'assistant' && msg !== newUserMessage ? assistantMessage : msg
+                      )
+                    }
+                  } else {
+                    return {
+                      ...prev,
+                      [activeTaskId]: [...currentConversation, assistantMessage]
+                    }
+                  }
+                })
+                
+                // Update chat messages for active chat view
+                setChatMessages(prev => {
+                  const assistantExists = prev.find(msg => msg.role === 'assistant' && msg !== newUserMessage)
+                  if (assistantExists) {
+                    return prev.map(msg => 
+                      msg.role === 'assistant' && msg !== newUserMessage ? assistantMessage : msg
+                    )
+                  } else {
+                    return [...prev, assistantMessage]
+                  }
+                })
               }
-            : draft
-        ))
+              else if (data.type === 'completion') {
+                console.log('Chat completion received:', data)
+                
+                // Ensure we have the final response
+                if (data.response && data.response !== streamedResponse) {
+                  streamedResponse = data.response
+                  
+                  // Update draft with the final response
+                  setTaskDrafts(prev => prev.map(draft => 
+                    draft.taskId === activeTaskId 
+                      ? { 
+                          ...draft, 
+                          response: data.response,
+                          searchResults: [...(draft.searchResults || []), ...(data.searchResults || [])]
+                        }
+                      : draft
+                  ))
+                  
+                  // Final update to conversations
+                  const finalMessage = { role: 'assistant', content: data.response }
+                  setTaskConversations(prev => {
+                    const currentConversation = prev[activeTaskId] || []
+                    // Replace the assistant message or add it
+                    if (currentConversation.find(msg => msg.role === 'assistant' && msg !== newUserMessage)) {
+                      return {
+                        ...prev,
+                        [activeTaskId]: currentConversation.map(msg => 
+                          msg.role === 'assistant' && msg !== newUserMessage ? finalMessage : msg
+                        )
+                      }
+                    } else {
+                      return {
+                        ...prev,
+                        [activeTaskId]: [...currentConversation, finalMessage]
+                      }
+                    }
+                  })
+                  
+                  setChatMessages(prev => {
+                    const assistantExists = prev.find(msg => msg.role === 'assistant' && msg !== newUserMessage)
+                    if (assistantExists) {
+                      return prev.map(msg => 
+                        msg.role === 'assistant' && msg !== newUserMessage ? finalMessage : msg
+                      )
+                    } else {
+                      return [...prev, finalMessage]
+                    }
+                  })
+                }
+              }
+              else if (data.type === 'error') {
+                throw new Error(data.details || 'Server error')
+              }
+            } catch (e) {
+              console.error('Error parsing event data:', e, eventText)
+            }
+          }
+        }
       }
-
     } catch (error) {
       console.error('Chat error:', error)
       // Show error in chat
