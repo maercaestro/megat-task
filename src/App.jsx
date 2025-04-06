@@ -301,9 +301,17 @@ function App() {
     if (activeTab === 'settings') {
       return (
         <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
+          <div className="text-center bg-white/80 backdrop-blur-sm p-8 rounded-xl shadow-lg">
+            <img 
+              src={logo}
+              alt="Megat-Task Logo" 
+              className="h-24 w-24 mx-auto mb-6 rounded-lg object-cover"
+            />
             <h3 className="text-xl font-medium text-gray-700 mb-2">Settings</h3>
-            <p className="text-gray-500">Created by Abu Huzaifah</p>
+            <p className="text-gray-500">Created by Abu Huzaifah Bidin</p>
+            <div className="mt-6 pt-4 border-t border-gray-200">
+              <p className="text-gray-500 text-sm">Version 1.0.0</p>
+            </div>
           </div>
         </div>
       )
@@ -475,29 +483,55 @@ function App() {
                 }`}>
                   {todo.text}
                 </div>
-                <div className="flex gap-2 mt-2">
-                  <span className={`px-2 py-1 rounded text-xs font-medium
-                    ${todo.section === 'Work' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>
-                    {todo.section}
-                  </span>
-                  <span className={`px-2 py-1 rounded text-xs font-medium
-                    ${todo.priority === 'High' 
-                      ? 'bg-red-100 text-red-700'
-                      : todo.priority === 'Medium'
-                        ? 'bg-yellow-100 text-yellow-700'
-                        : 'bg-blue-100 text-blue-700'
-                    }`}>
-                    {todo.priority}
-                  </span>
-                  <span className={`px-2 py-1 rounded text-xs font-medium
-                    ${todo.aiExecutable ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-700'}`}>
-                    {todo.aiExecutable ? '✅ AI Ready' : '❌ Manual Task'}
-                  </span>
-                  {todo.dueDate && (
-                    <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-700">
-                      Due: {new Date(todo.dueDate).toDateString()}
+                
+                {/* Responsive tags - show differently on mobile */}
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {/* On mobile: Show only priority and due date */}
+                  <div className="md:hidden flex gap-1.5">
+                    {/* Priority - always show on mobile */}
+                    <span className={`px-1.5 py-0.5 rounded-sm text-[10px] font-medium
+                      ${todo.priority === 'High' 
+                        ? 'bg-red-100 text-red-700'
+                        : todo.priority === 'Medium'
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : 'bg-blue-100 text-blue-700'
+                      }`}>
+                      {todo.priority}
                     </span>
-                  )}
+                    
+                    {/* Due date - always show if exists */}
+                    {todo.dueDate && (
+                      <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-gray-100 text-gray-700">
+                        Due: {new Date(todo.dueDate).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                  
+                  {/* On desktop: Show all tags */}
+                  <div className="hidden md:flex flex-wrap gap-2">
+                    <span className={`px-2 py-1 rounded text-xs font-medium
+                      ${todo.section === 'Work' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>
+                      {todo.section}
+                    </span>
+                    <span className={`px-2 py-1 rounded text-xs font-medium
+                      ${todo.priority === 'High' 
+                        ? 'bg-red-100 text-red-700'
+                        : todo.priority === 'Medium'
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : 'bg-blue-100 text-blue-700'
+                      }`}>
+                      {todo.priority}
+                    </span>
+                    <span className={`px-2 py-1 rounded text-xs font-medium
+                      ${todo.aiExecutable ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-700'}`}>
+                      {todo.aiExecutable ? '✅ AI Ready' : '❌ Manual Task'}
+                    </span>
+                    {todo.dueDate && (
+                      <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-700">
+                        Due: {new Date(todo.dueDate).toDateString()}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -537,74 +571,102 @@ function App() {
     );
   }
 
+  // Update the main container and layout structure
   return (
-    <div className="fixed inset-0 flex overflow-hidden bg-gradient-to-br from-emerald-400 to-blue-500">
-      {/* Left sidebar */}
-      <div className="w-1/5 flex-none bg-white/90 backdrop-blur-sm shadow-lg p-4 overflow-y-auto">
-        {/* Logo and title */}
-        <div className="flex items-center gap-3 px-4 mb-8">
+    <div className="fixed inset-0 flex flex-col md:flex-row overflow-hidden bg-gradient-to-br from-emerald-400 to-blue-500">
+      {/* Sidebar - collapses to top on mobile */}
+      <div className="w-full md:w-[300px] flex-none bg-white/90 backdrop-blur-sm shadow-lg 
+        p-4 overflow-y-auto border-b md:border-b-0">
+        {/* Logo and title - adjusts size on mobile */}
+        <div className="flex items-center gap-3 px-2 md:px-4 mb-4 md:mb-8">
           <img 
             src={logo}
             alt="Task Manager Logo" 
-            className="h-20 w-20 rounded-lg object-cover"
+            className="h-12 w-12 md:h-20 md:w-20 rounded-lg object-cover"
           />
-          <p3 className="font-bold text-blue-800 truncate">
+          <h3 className="text-xl md:text-2xl font-bold text-blue-800 truncate">
             Megat-Task
-          </p3>
+          </h3>
         </div>
-        {/* Navigation */}
-        <nav className="space-y-2">
+
+        {/* Navigation - transparent default, gray on hover */}
+        <nav className="flex md:block overflow-x-auto md:overflow-visible pb-2 md:pb-0 
+          scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
           {navItems.map(item => {
             const Icon = item.icon
             return (
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-3 px-6 py-4 text-base font-medium rounded-xl
-                  transition-all duration-300 hover:translate-x-1
+                className={`flex-none md:w-full flex items-center gap-1.5 md:gap-2
+                  px-3 md:px-4 py-1.5 md:py-2.5 mr-2 md:mr-0 md:mb-1.5
+                  text-xs md:text-sm font-medium rounded-md md:rounded-lg
+                  transition-all duration-300 hover:translate-x-0.5
                   ${activeTab === item.id 
-                    ? 'text-blue-600 bg-blue-50/50 shadow-sm translate-x-2' 
-                    : 'text-gray-700 hover:bg-white-50/50'
+                    ? 'text-blue-600 bg-blue-50/80 shadow-sm translate-x-0 md:translate-x-1' 
+                    : 'text-gray-600 bg-transparent hover:bg-gray-100/50'
                   }`}
               >
-                <Icon className={`h-5 w-5 ${
-                  activeTab === item.id 
-                    ? 'text-blue-600' 
-                    : 'text-gray-600'
+                <Icon className={`h-4 w-4 ${
+                  activeTab === item.id ? 'text-blue-600' : 'text-gray-500'
                 }`} />
-                <span>{item.label}</span>
+                <span className="whitespace-nowrap">{item.label}</span>
               </button>
             )
           })}
         </nav>
       </div>
 
-      {/* Main content */}
-      <div className="w-4/5 flex bg-white/100 backdrop-blur-sm shadow-lg flex-col overflow-y-auto">
-        {/* Header */}
-        <div className="bg-gray-100 shadow-sm flex-none"> 
-          <div className="w-full px-8 py-4">
-            <h2 className="text-xl font-semibold text-gray-700 capitalize">
+      {/* Main content - takes remaining space */}
+      <div className="flex-1 flex flex-col min-h-0 bg-white/100 backdrop-blur-sm shadow-lg">
+        {/* Header - stays at top */}
+        <div className="bg-gray-100 shadow-sm flex-none">
+          <div className="w-full px-4 md:px-8 py-3 md:py-4">
+            <h2 className="text-lg md:text-xl font-semibold text-gray-700 capitalize">
               {activeTab}
             </h2>
           </div>
         </div>
 
-        {/* Dynamic content */}
-        {renderContent()}
+        {/* Show errors below the header if any */}
+        {error && (
+          <div className="bg-red-100 text-red-700 px-4 md:px-8 py-2 text-sm flex items-center">
+            <span className="flex-1">{error}</span>
+            <button 
+              onClick={() => setError(null)}
+              className="text-red-500 hover:text-red-700"
+            >
+              <XMarkIcon className="h-5 w-5" />
+            </button>
+          </div>
+        )}
 
-        {/* Input area - show only if not in settings */}
-        {activeTab !== 'settings' && activeTab !== 'aI' && (
+        {/* Dynamic content - scrollable area */}
+        <div className="flex-1 overflow-y-auto">
+          {renderContent()}
+        </div>
+
+        {/* Input area - show only if in inbox or today tabs */}
+        {(activeTab === 'inbox' || activeTab === 'today') && (
           <div className="border-t bg-gray-100 p-4 flex-none">
-            <form onSubmit={handleSubmit} className="px-4">
-              <div className="flex gap-4">
+            <div className="px-4 md:px-0 mx-auto max-w-3xl">
+              <div className="relative flex gap-2">
                 <input
                   type="text"
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
                   placeholder="Type your task here..."
-                  className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-300"
+                  className="flex-1 px-4 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
+                  disabled={isLoading}
                 />
+                {isLoading && (
+                  <span className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                    <svg className="animate-spin h-5 w-5 text-blue-500" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                  </span>
+                )}
                 
                 {/* Manual Add Button */}
                 <button 
@@ -622,50 +684,38 @@ function App() {
                     }]);
                     setInputValue('');
                   }}
-                  className="px-4 py-2 bg-gray-200 hover:bg-gray-500 text-gray-700 text-sm rounded-lg 
-                    focus:outline-none focus:ring-2 focus:ring-gray-500 flex items-center gap-2 
+                  className="px-3 py-2 bg-gray-400 hover:bg-gray-500 text-gray-700 text-sm rounded-lg 
+                    focus:outline-none focus:ring-2 focus:ring-gray-500 flex items-center gap-1 
                     transition-colors duration-300"
+                  disabled={!inputValue.trim()}
                 >
                   <PlusIcon className="h-4 w-4" />
-                  Add Task
+                  <span className="hidden md:inline">Add Task</span>
                 </button>
 
                 {/* AI Analysis Button */}
                 <button 
-                  type="submit"
-                  disabled={isLoading}
-                  className={`px-4 py-2 ${
-                    isLoading 
-                      ? 'bg-gray-400 cursor-not-allowed' 
-                      : 'bg-blue-500 hover:bg-blue-600'
-                  } text-gray-700 text-sm rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center gap-2 transition-colors duration-300`}
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={isLoading || !inputValue.trim()}
+                  className="px-3 py-2 bg-blue-500 hover:bg-blue-600 text-gray-700 text-sm rounded-lg 
+                    shadow-sm transition-colors duration-300 flex items-center gap-1 
+                    disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isLoading ? (
-                    <>
-                      <svg className="animate-spin h-4 w-4 mr-2" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      Analyzing...
-                    </>
-                  ) : (
-                    <>
-                      <SparklesIcon className="h-4 w-4" />
-                      Prompt
-                    </>
-                  )}
+                  <SparklesIcon className="h-4 w-4" />
+                  <span className="hidden md:inline">Prompt</span>
                 </button>
               </div>
-            </form>
-            {error && (
-              <p className="mt-2 text-red-600 text-sm">{error}</p>
-            )}
+              {error && (
+                <p className="mt-2 text-red-600 text-sm px-4">{error}</p>
+              )}
+            </div>
           </div>
         )}
 
         {/* Edit Panel */}
         {isEditPanelOpen && selectedTask && (
-          <div className="fixed inset-y-0 right-0 w-96 bg-white shadow-lg transform transition-transform duration-300 ease-in-out">
+          <div className="fixed inset-y-0 right-0 w-96 bg-white shadow-lg transform transition-transform duration-300 ease-in-out z-20">
             <div className="h-full flex flex-col p-6">
               {/* Panel Header */}
               <div className="flex justify-between items-center mb-6">
@@ -692,7 +742,7 @@ function App() {
                     type="text"
                     value={selectedTask.text}
                     onChange={(e) => updateTask(selectedTask.id, { text: e.target.value })}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    className="mt-1 block w-full px-3 py-2 rounded-md border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                   />
                 </div>
 
@@ -703,9 +753,9 @@ function App() {
                   </label>
                   <input
                     type="date"
-                    value={new Date(selectedTask.dueDate).toISOString().split('T')[0]}
-                    onChange={(e) => updateTask(selectedTask.id, { dueDate: new Date(e.target.value).toISOString() })}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    value={selectedTask.dueDate ? new Date(selectedTask.dueDate).toISOString().split('T')[0] : ''}
+                    onChange={(e) => updateTask(selectedTask.id, { dueDate: e.target.value ? new Date(e.target.value).toISOString() : null })}
+                    className="mt-1 block w-full px-3 py-2 rounded-md border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                   />
                 </div>
 
@@ -717,7 +767,7 @@ function App() {
                   <select
                     value={selectedTask.priority}
                     onChange={(e) => updateTask(selectedTask.id, { priority: e.target.value })}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    className="mt-1 block w-full px-3 py-2 rounded-md border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                   >
                     <option value="High">High</option>
                     <option value="Medium">Medium</option>
@@ -733,7 +783,7 @@ function App() {
                   <select
                     value={selectedTask.section}
                     onChange={(e) => updateTask(selectedTask.id, { section: e.target.value })}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    className="mt-1 block w-full px-3 py-2 rounded-md border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                   >
                     <option value="Work">Work</option>
                     <option value="Personal">Personal</option>
@@ -747,62 +797,6 @@ function App() {
                   </label>
                   <div className="mt-1 text-sm text-gray-500">
                     {selectedTask.aiExecutable ? '✅ AI Ready' : '❌ Manual Task'}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Result Panel */}
-        {isResultPanelOpen && executionResult && (
-          <div className="fixed inset-y-0 right-0 w-96 bg-white shadow-lg transform transition-transform duration-300 ease-in-out">
-            <div className="h-full flex flex-col p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-medium text-gray-900">AI Task Result</h3>
-                <button
-                  onClick={() => {
-                    setIsResultPanelOpen(false)
-                    setExecutionResult(null)
-                  }}
-                  className="text-gray-400 hover:text-gray-500"
-                >
-                  <XMarkIcon className="h-6 w-6" />
-                </button>
-              </div>
-
-              <div className="space-y-6 overflow-y-auto">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Original Task
-                  </label>
-                  <p className="text-gray-600">{executionResult.originalTask}</p>
-                </div>
-
-                {executionResult.searchResults?.length > 0 && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Search Results
-                    </label>
-                    <div className="space-y-2">
-                      {executionResult.searchResults.map((result, index) => (
-                        <div key={index} className="p-3 bg-gray-50 rounded-lg">
-                          <p className="text-sm text-gray-600">{result.title}</p>
-                          <a href={result.url} className="text-xs text-blue-500 hover:underline" target="_blank" rel="noopener noreferrer">
-                            {result.url}
-                          </a>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    AI Response
-                  </label>
-                  <div className="prose prose-sm max-w-none">
-                    <p className="text-gray-600 whitespace-pre-wrap">{executionResult.response}</p>
                   </div>
                 </div>
               </div>
