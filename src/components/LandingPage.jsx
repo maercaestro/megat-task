@@ -12,8 +12,20 @@ import {
   CalendarIcon,
   ClockIcon
 } from '@heroicons/react/24/outline';
+import { useAuth } from '../components/Auth/useAuth';
 
 const LandingPage = ({ onGetStarted }) => {
+  const { login, isAuthenticated } = useAuth();
+  
+  // If user is authenticated, just call onGetStarted
+  const handleGetStarted = () => {
+    if (isAuthenticated) {
+      onGetStarted();
+    } else {
+      login();
+    }
+  };
+  
   return (
     <div className="min-h-screen w-full bg-gradient-to-br from-blue-50 to-emerald-50 overflow-x-hidden">
       {/* Navigation */}
@@ -24,11 +36,11 @@ const LandingPage = ({ onGetStarted }) => {
             <span className="text-2xl font-bold mt-4 bg-gradient-to-r from-blue-600 to-emerald-500 bg-clip-text text-transparent">Megat-Task</span>
           </div>
           <button 
-            onClick={onGetStarted}
+            onClick={handleGetStarted}
             className="px-4 py-2 bg-transparent border border-blue-600 text-blue-600 rounded-lg 
-              hover:bg-blue-700 hover:text-gray-700 transition-colors"
+              hover:bg-blue-700 hover:text-white transition-colors"
           >
-            Sign In
+            {isAuthenticated ? 'Go to App' : 'Sign In'}
           </button>
         </div>
       </nav>
@@ -46,11 +58,11 @@ const LandingPage = ({ onGetStarted }) => {
               </p>
               <div className="mt-8 flex flex-wrap gap-4">
                 <button 
-                  onClick={onGetStarted}
-                  className="px-6 py-3 bg-blue-600 text-gray-700 rounded-lg shadow-lg
+                  onClick={handleGetStarted}
+                  className="px-6 py-3 bg-blue-600 text-white rounded-lg shadow-lg
                     hover:bg-blue-700 transition-colors flex items-center gap-2"
                 >
-                  Get Started
+                  {isAuthenticated ? 'Go to App' : 'Get Started'}
                   <ArrowRightIcon className="h-4 w-4" />
                 </button>
                 <button 
@@ -200,11 +212,11 @@ const LandingPage = ({ onGetStarted }) => {
             Join thousands of users who have transformed their workflow with Megat-Task.
           </p>
           <button 
-            onClick={onGetStarted}
+            onClick={handleGetStarted}
             className="mt-8 px-8 py-4 bg-white text-blue-700 font-medium rounded-lg shadow-lg 
               hover:bg-blue-50 transition-colors inline-flex items-center gap-2"
           >
-            Get Started Now
+            {isAuthenticated ? 'Go to App' : 'Get Started Now'}
             <ArrowRightIcon className="h-5 w-5" />
           </button>
         </div>

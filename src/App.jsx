@@ -14,29 +14,40 @@ import {
 } from '@heroicons/react/24/solid';
 import ReactMarkdown from 'react-markdown';
 import LandingPage from './components/LandingPage';
+import { useAuth } from './components/Auth/useAuth';
+import LoginButton from './components/Auth/LoginButton';
+import UserProfile from './components/Auth/UserProfile';
 
 function App() {
+  const { isLoading, isAuthenticated, user } = useAuth();
+
   const [todos, setTodos] = useState(() => {
     const savedTodos = localStorage.getItem('todos');
     return savedTodos ? JSON.parse(savedTodos) : [];
   });
 
-  const [showLandingPage, setShowLandingPage] = useState(true);
+  const [showLandingPage, setShowLandingPage] = useState(() => {
+    return !isAuthenticated;
+  });
 
   useEffect(() => {
     localStorage.setItem('todos', JSON.stringify(todos));
   }, [todos]);
 
   useEffect(() => {
-    const savedTasks = localStorage.getItem('tasks');
-    if (savedTasks) {
+    if (isAuthenticated) {
       setShowLandingPage(false);
     }
-  }, []);
+  }, [isAuthenticated]);
+
+  const handleGetStarted = () => {
+    if (isAuthenticated) {
+      setShowLandingPage(false);
+    }
+  };
 
   const [inputValue, setInputValue] = useState('');
   const [activeTab, setActiveTab] = useState('inbox');
-  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
   const [isEditPanelOpen, setIsEditPanelOpen] = useState(false);
@@ -263,7 +274,6 @@ function App() {
     e.preventDefault();
     if (!inputValue.trim()) return;
 
-    setIsLoading(true);
     setError(null);
 
     try {
@@ -283,8 +293,6 @@ function App() {
     } catch (error) {
       setError('Failed to analyze task. Please try again.');
       console.error('Analysis error:', error);
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -838,27 +846,44 @@ function App() {
     }
   };
 
+  if (isLoading) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-gradient-to-br from-emerald-400 to-blue-500">
+        <div className="bg-white p-6 rounded-xl shadow-lg flex items-center gap-3">
+          <svg className="animate-spin h-6 w-6 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <span className="text-gray-700 font-medium">Loading Megat-Task...</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       {showLandingPage ? (
-        <LandingPage onGetStarted={() => setShowLandingPage(false)} />
+        <LandingPage onGetStarted={() => isAuthenticated ? setShowLandingPage(false) : null} />
       ) : (
         <div className="fixed inset-0 flex flex-col md:flex-row overflow-hidden bg-gradient-to-br from-emerald-400 to-blue-500">
           {/* Enhanced Sidebar */}
           <div className="w-full md:w-[300px] flex-none bg-white/90 backdrop-blur-sm shadow-lg 
             p-4 overflow-y-auto border-b md:border-b-0 md:border-r border-white/20">
-            <div className="flex items-center gap-3 px-2 md:px-4 mb-4 md:mb-8">
-              <img 
-                src={logo}
-                alt="Megat-Task Logo" 
-                className="h-12 w-12 md:h-16 md:w-16 rounded-lg shadow-md object-cover"
-              />
-              <h3 className="text-xl md:text-2xl font-bold bg-gradient-to-r from-blue-600 to-emerald-500 
-                bg-clip-text text-transparent">
-                Megat-Task
-              </h3>
+            <div className="flex items-center justify-between px-2 md:px-4 mb-4 md:mb-8">
+              <div className="flex items-center gap-3">
+                <img 
+                  src={logo}
+                  alt="Megat-Task Logo" 
+                  className="h-12 w-12 md:h-16 md:w-16 rounded-lg object-cover"
+                />
+                <h3 className="text-xl md:text-2xl font-bold bg-gradient-to-r from-blue-600 to-emerald-500 
+                  bg-clip-text text-transparent">
+                  Megat-Task
+                </h3>
+              </div>
+        
             </div>
-
+            
             <nav className="flex md:block overflow-x-auto md:overflow-visible pb-2 md:pb-0 
               scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
               {navItems.map(item => {
@@ -938,11 +963,14 @@ function App() {
                   {activeTab}
                 </h2>
                 
-                {/* Hide on mobile */}
-                <div className="hidden md:flex items-center space-x-4 text-xs">
-                  <div className="px-2.5 py-1 bg-blue-100/50 text-blue-700 rounded-full">
+                {/* Right side content with date and user profile */}
+                <div className="flex items-center gap-4">
+                  <div className="hidden md:block px-2.5 py-1 bg-blue-100/50 text-blue-700 rounded-full text-xs">
                     {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
                   </div>
+                  
+                  {/* User profile component moved here */}
+                  <UserProfile />
                 </div>
               </div>
             </div>

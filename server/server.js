@@ -2,6 +2,8 @@ import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import { OpenAI } from 'openai'
+const jwt = require('express-jwt');
+const jwksRsa = require('jwks-rsa');
 
 dotenv.config()
 
@@ -44,6 +46,19 @@ async function performBraveSearch(query) {
     return []
   }
 }
+
+// Authentication middleware
+const checkJwt = jwt({
+  secret: jwksRsa.expressJwtSecret({
+    cache: true,
+    rateLimit: true,
+    jwksRequestsPerMinute: 5,
+    jwksUri: `https://YOUR_AUTH0_DOMAIN/.well-known/jwks.json`
+  }),
+  audience: 'YOUR_API_IDENTIFIER',
+  issuer: `https://YOUR_AUTH0_DOMAIN/`,
+  algorithms: ['RS256']
+});
 
 // Task execution endpoint with streaming
 app.post('/api/execute-task', async (req, res) => {
@@ -160,7 +175,7 @@ app.post('/api/execute-task', async (req, res) => {
 })
 
 // Add task parsing endpoint
-app.post('/api/analyze-task', async (req, res) => {
+app.post('/api/analyze-task', checkJwt, async (req, res) => {
   try {
     const { text } = req.body
     const currentDate = new Date().toLocaleDateString('en-US', {
