@@ -6,13 +6,11 @@ const UserProfile = () => {
   const { user, logout, isAuthenticated } = useAuth();
   const [imageError, setImageError] = useState(false);
   
-  // Reset image error state if user changes
+  // Debug the user object and image loading
   useEffect(() => {
-    setImageError(false);
-  }, [user?.picture]);
+    if (user) console.log('User profile data:', user);
+  }, [user]);
   
-  console.log("Auth user object:", user);
-
   if (!isAuthenticated || !user) {
     return null;
   }
@@ -25,54 +23,48 @@ const UserProfile = () => {
     return (names[0].charAt(0) + names[names.length - 1].charAt(0)).toUpperCase();
   };
 
-  // Define a default avatar URL
-  const defaultAvatar = "https://ui-avatars.com/api/?name=" + encodeURIComponent(user.name || 'User') + "&background=0D8ABC&color=fff";
-
-  // Determine which image source to use
-  const imageSrc = (user.picture && !imageError) ? user.picture : defaultAvatar;
-
-  return (
-    <div className="w-10 h-10 rounded-full p-0.5 bg-gradient-to-r from-blue-500 to-emerald-400">
-      {/* Profile Button */}
-      <button className="w-full h-full rounded-full overflow-hidden shadow-md hover:shadow-lg transition-shadow bg-white">
-        {/* Always show image if available, otherwise show initials */}
-        {user.picture && !imageError ? (
+  // Render avatar display (used in both button and dropdown)
+  const renderAvatar = (size = 'small') => {
+    const sizeClasses = size === 'small' ? 'w-9 h-9' : 'w-12 h-12';
+    
+    if (user.picture && !imageError) {
+      return (
+        <div className={`${sizeClasses} rounded-full overflow-hidden border-2 border-white`}>
           <img 
-            src={user.picture} 
-            alt={user.name || 'User'} 
-            className="w-full h-full"
+            src={user.picture}
+            alt={user.name || 'User profile'} 
+            className="w-full h-full object-cover"
             onError={() => setImageError(true)}
           />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-white text-lg font-semibold">
-            {getInitials()}
-          </div>
-        )}
+        </div>
+      );
+    } else {
+      // Fallback to initials
+      return (
+        <div className={`${sizeClasses} rounded-full bg-gradient-to-r from-blue-600 to-emerald-500 
+                        flex items-center justify-center text-white font-semibold`}>
+          {getInitials()}
+        </div>
+      );
+    }
+  };
+
+  return (
+    <div className="relative group">
+      {/* Avatar Button - Simpler implementation */}
+      <button className="focus:outline-none">
+        {renderAvatar('small')}
       </button>
       
       {/* Dropdown Menu */}
-      <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-lg shadow-lg opacity-0 invisible 
-        group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
+      <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-lg shadow-xl opacity-0 invisible 
+        group-hover:opacity-100 group-hover:visible transition-all duration-200 z-40">
         <div className="p-4 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-gradient-to-r from-blue-500 to-emerald-400 flex items-center justify-center overflow-hidden">
-              {/* Use the same logic for the dropdown image */}
-              {user.picture && !imageError ? (
-                <img 
-                  src={user.picture} 
-                  alt={user.name || 'User'}
-                  className="w-full h-full object-cover"
-                  onError={() => setImageError(true)}
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-white text-xl font-semibold">
-                  {getInitials()}
-                </div>
-              )}
-            </div>
+            {renderAvatar('large')}
             <div>
               <p className="font-medium text-gray-800">{user.name || 'User'}</p>
-              <p className="text-sm text-gray-500">{user.email || 'No email available'}</p>
+              <p className="text-sm text-gray-500 truncate">{user.email || 'No email available'}</p>
             </div>
           </div>
         </div>

@@ -1069,7 +1069,7 @@ function App() {
                           setIsEditPanelOpen(false);
                           setSelectedTask(null);
                         }}
-                        className="text-white hover:text-blue-100 transition-colors"
+                        className="text-gray-700 hover:text-blue-700 transition-colors"
                       >
                         <XMarkIcon className="h-6 w-6" />
                       </button>
@@ -1151,7 +1151,7 @@ function App() {
                       {selectedTask.aiExecutable && (
                         <button
                           onClick={() => executeAiTask(selectedTask)}
-                          className="w-full mt-3 px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 
+                          className="w-full mt-3 px-4 py-2 bg-emerald-600 text-blue-600 rounded-md hover:bg-emerald-700 
                             transition-colors flex items-center justify-center gap-1.5"
                         >
                           <SparklesIcon className="h-4 w-4" />
@@ -1166,8 +1166,8 @@ function App() {
                       onClick={() => toggleTodo(selectedTask.id)}
                       className={`w-full py-2 px-4 rounded-lg flex items-center justify-center gap-1.5 transition-colors ${
                         selectedTask.completed 
-                          ? 'bg-gray-200 text-gray-700 hover:bg-gray-300' 
-                          : 'bg-blue-500 text-white hover:bg-blue-600'
+                          ? 'bg-gray-200 text-blue-700 hover:bg-gray-300' 
+                          : 'bg-blue-500 text-gray-700 hover:bg-blue-600'
                       }`}
                     >
                       <CheckIcon className="h-4 w-4" />

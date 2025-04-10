@@ -38,7 +38,7 @@ const LandingPage = ({ onGetStarted }) => {
           <button 
             onClick={handleGetStarted}
             className="px-4 py-2 bg-transparent border border-blue-600 text-blue-600 rounded-lg 
-              hover:bg-blue-700 hover:text-white transition-colors"
+              hover:bg-blue-700 hover:text-gray-700 transition-colors"
           >
             {isAuthenticated ? 'Go to App' : 'Sign In'}
           </button>
@@ -59,7 +59,7 @@ const LandingPage = ({ onGetStarted }) => {
               <div className="mt-8 flex flex-wrap gap-4">
                 <button 
                   onClick={handleGetStarted}
-                  className="px-6 py-3 bg-blue-600 text-white rounded-lg shadow-lg
+                  className="px-6 py-3 bg-blue-600 text-gray-700 rounded-lg shadow-lg
                     hover:bg-blue-700 transition-colors flex items-center gap-2"
                 >
                   {isAuthenticated ? 'Go to App' : 'Get Started'}

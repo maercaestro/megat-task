@@ -1,15 +1,36 @@
-import express from 'express'
-import cors from 'cors'
-import dotenv from 'dotenv'
-import { OpenAI } from 'openai'
-const jwt = require('express-jwt');
-const jwksRsa = require('jwks-rsa');
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import { OpenAI } from 'openai';
+import { auth } from 'express-oauth2-jwt-bearer';
 
-dotenv.config()
+dotenv.config();
 
-const app = express()
-app.use(cors())
-app.use(express.json())
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// Create an optional auth middleware for development
+const optionalAuth = (req, res, next) => {
+  // Skip auth in development
+  if (process.env.NODE_ENV === 'development') {
+    // Create a mock user for development
+    req.auth = { 
+      sub: 'dev-user',
+      permissions: ['read:tasks', 'write:tasks']
+    };
+    return next();
+  }
+  
+  // In production, use real auth
+  const checkJwt = auth({
+    audience: process.env.AUTH0_AUDIENCE || 'https://megat-task-api',
+    issuerBaseURL: process.env.AUTH0_ISSUER_BASE_URL || 'https://dev-x4vn1xnajg1ucyjl.us.auth0.com/',
+    tokenSigningAlg: 'RS256'
+  });
+  
+  return checkJwt(req, res, next);
+};
 
 // OpenAI setup
 const openai = new OpenAI({
@@ -47,21 +68,8 @@ async function performBraveSearch(query) {
   }
 }
 
-// Authentication middleware
-const checkJwt = jwt({
-  secret: jwksRsa.expressJwtSecret({
-    cache: true,
-    rateLimit: true,
-    jwksRequestsPerMinute: 5,
-    jwksUri: `https://YOUR_AUTH0_DOMAIN/.well-known/jwks.json`
-  }),
-  audience: 'YOUR_API_IDENTIFIER',
-  issuer: `https://YOUR_AUTH0_DOMAIN/`,
-  algorithms: ['RS256']
-});
-
 // Task execution endpoint with streaming
-app.post('/api/execute-task', async (req, res) => {
+app.post('/api/execute-task', optionalAuth, async (req, res) => {
   try {
     const { text, context, taskId } = req.body
     
@@ -175,7 +183,7 @@ app.post('/api/execute-task', async (req, res) => {
 })
 
 // Add task parsing endpoint
-app.post('/api/analyze-task', checkJwt, async (req, res) => {
+app.post('/api/analyze-task', optionalAuth, async (req, res) => {
   try {
     const { text } = req.body
     const currentDate = new Date().toLocaleDateString('en-US', {
