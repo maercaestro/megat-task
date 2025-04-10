@@ -117,7 +117,7 @@ When a task is prompted using the "✨ Prompt" button, it is analyzed into:
 
 ## 🧑‍💻 Author
 
-Created with ❤️ by **Abu Huzaifah Bidin**  
+Created by **Abu Huzaifah Bidin**  
 📫 [Connect on LinkedIn](https://www.linkedin.com/in/abu-huzaifah-bidin)  
 🧪 Version: `1.0.0`
 
