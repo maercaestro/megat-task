@@ -10,26 +10,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Create an optional auth middleware for development
+// Simplified middleware that always allows access
 const optionalAuth = (req, res, next) => {
-  // Skip auth in development
-  if (process.env.NODE_ENV === 'development') {
-    // Create a mock user for development
-    req.auth = { 
-      sub: 'dev-user',
-      permissions: ['read:tasks', 'write:tasks']
-    };
-    return next();
-  }
-  
-  // In production, use real auth
-  const checkJwt = auth({
-    audience: process.env.AUTH0_AUDIENCE || 'https://megat-task-api',
-    issuerBaseURL: process.env.AUTH0_ISSUER_BASE_URL || 'https://dev-x4vn1xnajg1ucyjl.us.auth0.com/',
-    tokenSigningAlg: 'RS256'
-  });
-  
-  return checkJwt(req, res, next);
+  // Always create a mock user
+  req.auth = { 
+    sub: 'dev-user',
+    permissions: ['read:tasks', 'write:tasks']
+  };
+  return next();
 };
 
 // OpenAI setup

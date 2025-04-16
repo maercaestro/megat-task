@@ -10,7 +10,9 @@ import {
   SparklesIcon,
   XMarkIcon,
   Cog6ToothIcon,
-  ClipboardDocumentIcon
+  ClipboardDocumentIcon,
+  ArrowRightIcon,
+  ArrowLeftIcon
 } from '@heroicons/react/24/solid';
 import ReactMarkdown from 'react-markdown';
 import LandingPage from './components/LandingPage';
@@ -71,7 +73,7 @@ function App() {
           const dueDate = todo.dueDate ? new Date(todo.dueDate).toDateString() : null;
           return dueDate === today;
         });
-      case 'aI':
+      case 'AI':
         return todos.filter(todo => todo.aiExecutable);
       default:
         return [];
@@ -492,7 +494,7 @@ function App() {
   const navItems = [
     { id: 'inbox', icon: InboxIcon, label: 'Inbox' },
     { id: 'today', icon: CalendarIcon, label: 'Today' },
-    { id: 'aI', icon: SparklesIcon, label: 'AI Tasks' },
+    { id: 'AI', icon: SparklesIcon, label: 'AI Tasks' },
     { id: 'settings', icon: Cog6ToothIcon, label: 'Settings' },
   ];
 
@@ -543,118 +545,88 @@ function App() {
       );
     }
 
-    if (activeTab === 'aI') {
+    if (activeTab === 'AI') {
       return (
-        <div className="flex-1 flex flex-col">
-          <div className="flex-none p-4 bg-gradient-to-r from-blue-50 to-emerald-50 border-b border-gray-200">
-            <div className="flex gap-2 overflow-x-auto py-1 pb-3 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
-              {getFilteredTasks().filter(todo => todo.aiExecutable).length === 0 ? (
-                <div className="w-full text-center py-4 text-gray-500 text-sm">
-                  No AI-executable tasks available. Add a task that can be executed with AI assistance.
-                </div>
-              ) : (
-                getFilteredTasks().filter(todo => todo.aiExecutable).map(todo => (
-                  <button
-                    key={todo.id}
-                    onClick={() => handleTaskSelect(todo)}
-                    disabled={isExecuting && activeTaskId === todo.id}
-                    className={`flex-none px-4 py-2.5 rounded-lg shadow-sm hover:shadow-md 
-                      transition-all duration-200 flex items-center gap-2
-                      ${activeTaskId === todo.id 
-                        ? 'bg-blue-500 text-gray-700 ring-2 ring-blue-300' 
-                        : 'bg-white text-gray-700'}
-                      ${completedAiTasks.has(todo.id) ? 'border-l-4 border-emerald-500' : ''}
-                      ${isExecuting && activeTaskId === todo.id ? 'animate-pulse' : ''}`}
-                  >
-                    <span className="text-sm whitespace-nowrap">{todo.text}</span>
-                    {isExecuting && activeTaskId === todo.id ? (
-                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                    ) : completedAiTasks.has(todo.id) ? (
-                      <CheckIcon className="h-4 w-4 text-emerald-500" />
-                    ) : (
-                      <ChatBubbleBottomCenterIcon className="h-4 w-4" />
-                    )}
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="flex-1 flex flex-col overflow-y-auto">
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {taskDrafts.length === 0 && (
+        <div className="flex-1 flex flex-col md:flex-row h-full overflow-hidden">
+          {/* Main Chat Content Area */}
+          <div className="flex-1 flex flex-col h-full overflow-hidden">
+            {/* Task response area - adjust height to leave space for chat */}
+            <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-0">
+              {taskDrafts.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-center p-8">
                   <div className="bg-blue-50 p-4 rounded-full mb-4">
                     <SparklesIcon className="h-10 w-10 text-blue-500 opacity-70" />
                   </div>
                   <h3 className="text-lg font-medium text-gray-700 mb-2">AI Assistant</h3>
                   <p className="text-gray-500 max-w-sm mx-auto mb-6">
-                    Select an AI-executable task from above to start working with your AI assistant.
+                    Select an AI-executable task from the right panel to start working with your AI assistant.
                   </p>
                 </div>
-              )}
-              
-              {taskDrafts
-                .filter(draft => !activeTaskId || draft.taskId === activeTaskId)
-                .map((draft, index) => (
-                  <div key={index} className="bg-white rounded-lg shadow-sm p-5 border border-gray-100">
-                    <div className="flex justify-between items-start mb-3">
-                      <div className="text-sm font-medium text-gray-900 px-3 py-1 bg-blue-50 rounded-md">
-                        {draft.task}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(draft.response);
-                            const btn = document.getElementById(`copy-btn-${index}`);
-                            btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" /></svg><span>Copied!</span>';
-                            setTimeout(() => {
-                              btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" /><path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" /></svg><span>Copy</span>';
-                            }, 2000);
-                          }}
-                          id={`copy-btn-${index}`}
-                          className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-50 hover:bg-gray-100 rounded transition-colors"
-                        >
-                          <ClipboardDocumentIcon className="h-3 w-3" />
-                          <span>Copy</span>
-                        </button>
-                        <div className="text-xs text-gray-500">
-                          {new Date(draft.timestamp).toLocaleString()}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="prose prose-sm max-w-none text-sm text-gray-600 bg-gray-50 p-4 rounded-lg">
-                      <ReactMarkdown>{draft.response}</ReactMarkdown>
-                    </div>
-                    {draft.searchResults?.length > 0 && (
-                      <div className="mt-3 pt-3 border-t border-gray-100">
-                        <div className="text-xs font-medium text-gray-700 mb-2">Sources:</div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {draft.searchResults.map((result, idx) => (
-                            <a
-                              key={idx}
-                              href={result.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="block text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 hover:text-blue-700 p-2 rounded truncate transition-colors"
+              ) : (
+                <div className="space-y-4 pb-4">
+                  {taskDrafts
+                    .filter(draft => !activeTaskId || draft.taskId === activeTaskId)
+                    .map((draft, index) => (
+                      <div key={index} className="bg-white rounded-lg shadow-sm p-5 border border-gray-100">
+                        {/* Existing task draft content */}
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="text-sm font-medium text-gray-900 px-3 py-1 bg-blue-50 rounded-md">
+                            {draft.task}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(draft.response);
+                                const btn = document.getElementById(`copy-btn-${index}`);
+                                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" /></svg><span>Copied!</span>';
+                                setTimeout(() => {
+                                  btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" /><path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" /></svg><span>Copy</span>';
+                                }, 2000);
+                              }}
+                              id={`copy-btn-${index}`}
+                              className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-50 hover:bg-gray-100 rounded transition-colors"
                             >
-                              {result.title}
-                            </a>
-                          ))}
+                              <ClipboardDocumentIcon className="h-3 w-3" />
+                              <span>Copy</span>
+                            </button>
+                            <div className="text-xs text-gray-500">
+                              {new Date(draft.timestamp).toLocaleString()}
+                            </div>
+                          </div>
                         </div>
+                        <div className="prose prose-sm w-full max-w-none overflow-hidden break-words text-sm text-gray-600 bg-gray-50 p-4 rounded-lg">
+                          <div className="overflow-x-auto">
+                            <ReactMarkdown>{draft.response}</ReactMarkdown>
+                          </div>
+                        </div>
+                        {draft.searchResults?.length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-gray-100">
+                            <div className="text-xs font-medium text-gray-700 mb-2">Sources:</div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {draft.searchResults.map((result, idx) => (
+                                <a
+                                  key={idx}
+                                  href={result.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="block text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 hover:text-blue-700 p-2 rounded truncate transition-colors"
+                                  title={result.title || "Source link"}
+                                >
+                                  {result.title}
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                ))
-              }
+                    ))}
+                </div>
+              )}
             </div>
 
-            {/* Enhanced Chat Interface */}
+            {/* Fixed Chat Interface - Always visible at bottom */}
             <div className="flex-none border-t border-gray-200 bg-white p-4">
-              <div className="mb-4 max-h-36 overflow-y-auto p-3 bg-gray-50 rounded-lg">
+              <div className="mb-4 h-32 max-h-32 overflow-y-auto p-3 bg-gray-50 rounded-lg">
                 {chatMessages.length === 0 ? (
                   <div className="text-center text-gray-400 text-sm py-2">
                     Conversation will appear here
@@ -669,7 +641,7 @@ function App() {
                           : 'bg-gray-100 mr-12 text-gray-800'
                       }`}
                     >
-                      <div className="text-sm">
+                      <div className="text-sm break-words">
                         {message.content}
                       </div>
                     </div>
@@ -697,6 +669,58 @@ function App() {
                 </button>
               </form>
             </div>
+          </div>
+
+          {/* Right Sidebar with Task Buttons */}
+          <div className="hidden md:block w-72 flex-none border-l border-gray-200 overflow-y-auto">
+            <div className="p-4 bg-gradient-to-b from-blue-50 to-emerald-50 border-b border-gray-200">
+              <h3 className="text-sm font-medium text-gray-700 mb-3">AI Tasks</h3>
+              
+              {getFilteredTasks().filter(todo => todo.aiExecutable).length === 0 ? (
+                <div className="w-full text-center py-4 text-gray-500 text-sm">
+                  No AI-executable tasks available. Add a task that can be executed with AI assistance.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {getFilteredTasks().filter(todo => todo.aiExecutable).map(todo => (
+                    <button
+                      key={todo.id}
+                      onClick={() => handleTaskSelect(todo)}
+                      disabled={isExecuting && activeTaskId === todo.id}
+                      className={`w-full px-4 py-2.5 rounded-lg shadow-sm hover:shadow-md 
+                        transition-all duration-200 flex items-center gap-2
+                        ${activeTaskId === todo.id 
+                          ? 'bg-blue-500 text-gray-700 ring-2 ring-blue-300' 
+                          : 'bg-white text-gray-700'}
+                        ${completedAiTasks.has(todo.id) ? 'border-l-4 border-emerald-500' : ''}
+                        ${isExecuting && activeTaskId === todo.id ? 'animate-pulse' : ''}`}
+                    >
+                      <span className="text-sm whitespace-nowrap truncate flex-1 text-left">{todo.text}</span>
+                      {isExecuting && activeTaskId === todo.id ? (
+                        <svg className="animate-spin h-4 w-4 flex-none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                      ) : completedAiTasks.has(todo.id) ? (
+                        <CheckIcon className="h-4 w-4 text-emerald-500 flex-none" />
+                      ) : (
+                        <ChatBubbleBottomCenterIcon className="h-4 w-4 flex-none" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Mobile floating button for AI tasks */}
+          <div className="md:hidden fixed bottom-20 right-4 z-10">
+            <button
+              onClick={() => setShowMobileTasksModal(true)}
+              className="bg-gradient-to-r from-blue-500 to-emerald-500 p-3 rounded-full shadow-lg flex items-center justify-center"
+            >
+              <ChatBubbleBottomCenterIcon className="h-6 w-6 text-white" />
+            </button>
           </div>
         </div>
       );
@@ -866,22 +890,26 @@ function App() {
         <LandingPage onGetStarted={() => isAuthenticated ? setShowLandingPage(false) : null} />
       ) : (
         <div className="fixed inset-0 flex flex-col md:flex-row overflow-hidden bg-gradient-to-br from-emerald-400 to-blue-500">
-          {/* Enhanced Sidebar */}
-          <div className="w-full md:w-[300px] flex-none bg-white/90 backdrop-blur-sm shadow-lg 
-            p-4 overflow-y-auto border-b md:border-b-0 md:border-r border-white/20">
-            <div className="flex items-center justify-between px-2 md:px-4 mb-4 md:mb-8">
-              <div className="flex items-center gap-3">
+          {/* Enhanced Sidebar - Now Collapsible */}
+          <div className="w-full md:w-[220px] flex-none bg-white/90 backdrop-blur-sm shadow-lg 
+            flex flex-col h-auto md:h-full p-4 overflow-y-auto border-b md:border-b-0 md:border-r border-white/20">
+            <div className="flex items-center justify-between px-2 md:px-4 mb-4">
+              <div className="flex items-center gap-2 md:gap-3">
                 <img 
                   src={logo}
                   alt="Megat-Task Logo" 
-                  className="h-12 w-12 md:h-16 md:w-16 rounded-lg object-cover"
+                  className="h-8 w-8 md:h-12 md:w-12 rounded-lg object-cover"
                 />
-                <h3 className="text-xl md:text-2xl font-bold bg-gradient-to-r from-blue-600 to-emerald-500 
+                <p3 className="text-lg md:text-xl font-bold bg-gradient-to-r from-blue-600 to-emerald-500 
                   bg-clip-text text-transparent">
-                  Megat-Task
-                </h3>
+                  Task
+                </p3>
               </div>
-        
+              
+              {/* Mobile User Profile - Only visible on small screens */}
+              <div className="block md:hidden">
+                <UserProfile compact={true} rightAlignedDropdown={false} />
+              </div>
             </div>
             
             <nav className="flex md:block overflow-x-auto md:overflow-visible pb-2 md:pb-0 
@@ -892,7 +920,7 @@ function App() {
                   <button
                     key={item.id}
                     onClick={() => setActiveTab(item.id)}
-                    className={`flex-none md:w-full flex items-center gap-1.5 md:gap-2
+                    className={`flex-none md:w-full flex items-center justify-start gap-1.5 md:gap-2
                       px-3 md:px-4 py-1.5 md:py-2.5 mr-2 md:mr-0 md:mb-2
                       text-xs md:text-sm font-medium rounded-md md:rounded-lg
                       transition-all duration-300 hover:translate-x-0.5
@@ -910,7 +938,7 @@ function App() {
               })}
             </nav>
 
-            {/* Stats Section - New UI Element */}
+            {/* Stats Section - Hidden when collapsed */}
             <div className="hidden md:block mt-6 px-4 py-4 bg-blue-50/50 rounded-lg">
               <h4 className="text-sm font-medium text-gray-700 mb-2">Overview</h4>
               <div className="space-y-2">
@@ -948,6 +976,16 @@ function App() {
                 </div>
               </div>
             </div>
+
+            {/* Content can grow to fill space */}
+            <div className="flex-grow"></div>
+            
+            {/* User Profile Section - Hidden on mobile, visible on desktop */}
+            <div className="mt-auto pt-4 border-t border-gray-200 w-full hidden md:block">
+              <div className="w-full py-2 px-0">
+                <UserProfile fullWidth={true} rightAlignedDropdown={true} />
+              </div>
+            </div>
           </div>
 
           {/* Main Content Area - Enhanced */}
@@ -955,22 +993,18 @@ function App() {
             {/* Enhanced Header */}
             <div className="bg-white shadow-sm flex-none border-b border-gray-100">
               <div className="w-full px-4 md:px-8 py-3 md:py-4 flex items-center justify-between">
-                <h2 className="text-lg md:text-xl font-semibold text-gray-800 capitalize flex items-center gap-2">
-                  {activeTab === 'inbox' && <InboxIcon className="h-5 w-5 text-blue-500" />}
-                  {activeTab === 'today' && <CalendarIcon className="h-5 w-5 text-blue-500" />}
-                  {activeTab === 'aI' && <SparklesIcon className="h-5 w-5 text-blue-500" />}
-                  {activeTab === 'settings' && <Cog6ToothIcon className="h-5 w-5 text-blue-500" />}
+                <h2 className="text-md md:text-lg font-semibold text-gray-800 capitalize flex items-center gap-2">
+                  {activeTab === 'inbox' && <InboxIcon className="h-4 w-4 md:h-5 md:w-5 text-blue-500" />}
+                  {activeTab === 'today' && <CalendarIcon className="h-4 w-4 md:h-5 md:w-5 text-blue-500" />}
+                  {activeTab === 'AI' && <SparklesIcon className="h-4 w-4 md:h-5 md:w-5 text-blue-500" />}
+                  {activeTab === 'settings' && <Cog6ToothIcon className="h-4 w-4 md:h-5 md:w-5 text-blue-500" />}
                   {activeTab}
                 </h2>
                 
-                {/* Right side content with date and user profile */}
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 md:gap-3">
                   <div className="hidden md:block px-2.5 py-1 bg-blue-100/50 text-blue-700 rounded-full text-xs">
                     {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
                   </div>
-                  
-                  {/* User profile component moved here */}
-                  <UserProfile />
                 </div>
               </div>
             </div>
@@ -1166,7 +1200,7 @@ function App() {
                       onClick={() => toggleTodo(selectedTask.id)}
                       className={`w-full py-2 px-4 rounded-lg flex items-center justify-center gap-1.5 transition-colors ${
                         selectedTask.completed 
-                          ? 'bg-gray-200 text-blue-700 hover:bg-gray-300' 
+                          ? 'bg-gray-200 text-blue hover:bg-gray-300' 
                           : 'bg-blue-500 text-gray-700 hover:bg-blue-600'
                       }`}
                     >
