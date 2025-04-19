@@ -24,7 +24,12 @@ import {
   addTask, 
   updateTask, 
   deleteTask, 
-  getCurrentUser 
+  getCurrentUser,
+  saveTaskExecution,
+  getTaskExecutions,
+  saveConversationMessage,
+  getTaskConversation,
+  deleteTaskConversation
 } from './utils/supabaseClient';
 
 function App() {
@@ -151,13 +156,35 @@ function App() {
     }
   };
 
-  const handleTaskSelect = (task) => {
+  const handleTaskSelect = async (task) => {
     setActiveTaskId(task.id);
-    const taskDraft = taskDrafts.find(draft => draft.taskId === task.id);
-    if (taskDraft) {
-      setChatMessages(taskConversations[task.id] || []);
-    } else if (!completedAiTasks.has(task.id)) {
-      executeAiTask(task);
+    
+    try {
+      // Load existing conversation from database
+      const user = await getCurrentUser();
+      const conversationHistory = await getTaskConversation(task.id);
+      
+      if (conversationHistory && conversationHistory.length > 0) {
+        // Format for your UI
+        setChatMessages(conversationHistory.map(msg => ({
+          role: msg.role,
+          content: msg.content
+        })));
+        
+        // Update conversations state
+        setTaskConversations(prev => ({
+          ...prev,
+          [task.id]: conversationHistory.map(msg => ({
+            role: msg.role,
+            content: msg.content
+          }))
+        }));
+      } else if (!completedAiTasks.has(task.id)) {
+        // If no history found, execute the task
+        executeAiTask(task);
+      }
+    } catch (error) {
+      console.error('Error loading conversation history:', error);
     }
   };
 
@@ -186,6 +213,15 @@ function App() {
       }));
       
       setChatMessages([initialMessage]);
+
+      // Save the initial user query to conversation history
+      const user = await getCurrentUser();
+      await saveConversationMessage({
+        taskId: task.id,
+        userId: user.id,
+        role: 'user',
+        content: task.text
+      });
       
       const response = await fetch('http://localhost:3000/api/execute-task', {
         method: 'POST',
@@ -207,6 +243,7 @@ function App() {
       const decoder = new TextDecoder();
       
       let streamedResponse = '';
+      let searchResults = [];
       
       while (true) {
         const { done, value } = await reader.read();
@@ -225,6 +262,7 @@ function App() {
               const data = JSON.parse(jsonData);
               
               if (data.type === 'search_results') {
+                searchResults = data.searchResults;
                 setTaskDrafts(prev => prev.map(draft => 
                   draft.taskId === task.id 
                     ? { ...draft, searchResults: data.searchResults }
@@ -286,6 +324,22 @@ function App() {
                       : draft
                   ));
                 }
+
+                // After receiving the AI response
+                await saveConversationMessage({
+                  taskId: task.id,
+                  userId: user.id,
+                  role: 'assistant',
+                  content: streamedResponse // or finalResponse
+                });
+
+                // Save execution results with search data
+                await saveTaskExecution({
+                  taskId: task.id,
+                  userId: user.id,
+                  response: streamedResponse,
+                  searchResults: searchResults || [] // If you have search results
+                });
               }
               else if (data.type === 'error') {
                 throw new Error(data.details || 'Server error');
@@ -450,168 +504,33 @@ function App() {
     if (!chatInput.trim() || !activeTaskId) return;
 
     try {
+      const user = await getCurrentUser();
       const newUserMessage = { role: 'user', content: chatInput };
-      setChatMessages(prev => [...prev, newUserMessage]);
       
-      const updatedMessages = [...(taskConversations[activeTaskId] || []), newUserMessage];
-      setTaskConversations(prev => ({
-        ...prev,
-        [activeTaskId]: updatedMessages
-      }));
-
-      setChatInput('');
-
-      const response = await fetch('http://localhost:3000/api/execute-task', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          text: chatInput,
-          context: updatedMessages,
-          taskId: activeTaskId
-        })
+      // Save to database
+      await saveConversationMessage({
+        taskId: activeTaskId,
+        userId: user.id,
+        role: 'user',
+        content: chatInput
       });
-
-      if (!response.ok) throw new Error(`Server error: ${response.status}`);
       
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
+      // Update UI
+      setChatMessages(prev => [...prev, newUserMessage]);
+      setChatInput('');
       
-      let streamedResponse = '';
+      // Rest of your code for handling AI response...
       
-      while (true) {
-        const { done, value } = await reader.read();
-        
-        if (done) {
-          break;
-        }
-        
-        const chunk = decoder.decode(value);
-        
-        const events = chunk.split('\n\n').filter(Boolean);
-        
-        for (const eventText of events) {
-          if (eventText.startsWith('data: ')) {
-            const jsonData = eventText.slice(6);
-            try {
-              const data = JSON.parse(jsonData);
-              
-              if (data.type === 'search_results') {
-                setTaskDrafts(prev => prev.map(draft => 
-                  draft.taskId === activeTaskId 
-                    ? { ...draft, searchResults: data.searchResults }
-                    : draft
-                ));
-              } 
-              else if (data.type === 'content_chunk') {
-                streamedResponse += data.content;
-                
-                setTaskDrafts(prev => prev.map(draft => 
-                  draft.taskId === activeTaskId 
-                    ? { ...draft, response: streamedResponse }
-                    : draft
-                ));
-                
-                const assistantMessage = { 
-                  role: 'assistant', 
-                  content: streamedResponse 
-                };
-                
-                setTaskConversations(prev => {
-                  const currentConversation = prev[activeTaskId] || [];
-                  if (currentConversation.find(msg => msg.role === 'assistant' && msg !== newUserMessage)) {
-                    return {
-                      ...prev,
-                      [activeTaskId]: currentConversation.map(msg => 
-                        msg.role === 'assistant' && msg !== newUserMessage ? assistantMessage : msg
-                      )
-                    };
-                  } else {
-                    return {
-                      ...prev,
-                      [activeTaskId]: [...currentConversation, assistantMessage]
-                    };
-                  }
-                });
-                
-                setChatMessages(prev => {
-                  const assistantExists = prev.find(msg => msg.role === 'assistant' && msg !== newUserMessage);
-                  if (assistantExists) {
-                    return prev.map(msg => 
-                      msg.role === 'assistant' && msg !== newUserMessage ? assistantMessage : msg
-                    );
-                  } else {
-                    return [...prev, assistantMessage];
-                  }
-                });
-              }
-              else if (data.type === 'completion') {
-                console.log('Chat completion received:', data);
-                
-                if (data.response && data.response !== streamedResponse) {
-                  streamedResponse = data.response;
-                  
-                  setTaskDrafts(prev => prev.map(draft => 
-                    draft.taskId === activeTaskId 
-                      ? { 
-                          ...draft, 
-                          response: data.response,
-                          searchResults: [...(draft.searchResults || []), ...(data.searchResults || [])]
-                        }
-                      : draft
-                  ));
-                  
-                  const finalMessage = { role: 'assistant', content: data.response };
-                  setTaskConversations(prev => {
-                    const currentConversation = prev[activeTaskId] || [];
-                    if (currentConversation.find(msg => msg.role === 'assistant' && msg !== newUserMessage)) {
-                      return {
-                        ...prev,
-                        [activeTaskId]: currentConversation.map(msg => 
-                          msg.role === 'assistant' && msg !== newUserMessage ? finalMessage : msg
-                        )
-                      };
-                    } else {
-                      return {
-                        ...prev,
-                        [activeTaskId]: [...currentConversation, finalMessage]
-                      };
-                    }
-                  });
-                  
-                  setChatMessages(prev => {
-                    const assistantExists = prev.find(msg => msg.role === 'assistant' && msg !== newUserMessage);
-                    if (assistantExists) {
-                      return prev.map(msg => 
-                        msg.role === 'assistant' && msg !== newUserMessage ? finalMessage : msg
-                      );
-                    } else {
-                      return [...prev, finalMessage];
-                    }
-                  });
-                }
-              }
-              else if (data.type === 'error') {
-                throw new Error(data.details || 'Server error');
-              }
-            } catch (e) {
-              console.error('Error parsing event data:', e, eventText);
-            }
-          }
-        }
-      }
+      // After receiving AI response, save it
+      await saveConversationMessage({
+        taskId: activeTaskId,
+        userId: user.id,
+        role: 'assistant',
+        content: aiResponse
+      });
+      
     } catch (error) {
       console.error('Chat error:', error);
-      const errorMessage = { 
-        role: 'assistant', 
-        content: 'Sorry, I encountered an error processing your request.' 
-      };
-      setChatMessages(prev => [...prev, errorMessage]);
-      setTaskConversations(prev => ({
-        ...prev,
-        [activeTaskId]: [...(prev[activeTaskId] || []), errorMessage]
-      }));
     }
   };
 
