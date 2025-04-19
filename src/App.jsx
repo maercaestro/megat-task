@@ -19,28 +19,69 @@ import LandingPage from './components/LandingPage';
 import { useAuth } from './components/Auth/useAuth';
 import LoginButton from './components/Auth/LoginButton';
 import UserProfile from './components/Auth/UserProfile';
+import { 
+  getTasks, 
+  addTask, 
+  updateTask, 
+  deleteTask, 
+  getCurrentUser 
+} from './utils/supabaseClient';
 
 function App() {
   const { isLoading, isAuthenticated, user } = useAuth();
 
-  const [todos, setTodos] = useState(() => {
-    const savedTodos = localStorage.getItem('todos');
-    return savedTodos ? JSON.parse(savedTodos) : [];
-  });
+  const [todos, setTodos] = useState([]);
+  const [isLoadingTasks, setIsLoadingTasks] = useState(true);
 
   const [showLandingPage, setShowLandingPage] = useState(() => {
     return !isAuthenticated;
   });
 
   useEffect(() => {
-    localStorage.setItem('todos', JSON.stringify(todos));
-  }, [todos]);
-
-  useEffect(() => {
+    async function fetchTasks() {
+      try {
+        setIsLoadingTasks(true);
+        const user = await getCurrentUser();
+        
+        if (user) {
+          const taskData = await getTasks(user.id);
+          // Convert from snake_case to camelCase for React
+          const formattedTasks = taskData.map(task => ({
+            id: task.id,
+            text: task.text,
+            completed: task.completed,
+            section: task.section,
+            priority: task.priority,
+            aiExecutable: task.ai_executable,
+            dueDate: task.due_date,
+            analysis: task.analysis
+          }));
+          setTodos(formattedTasks);
+        }
+      } catch (error) {
+        console.error('Error fetching tasks:', error);
+        setError('Failed to load your tasks. Please refresh the page.');
+      } finally {
+        setIsLoadingTasks(false);
+      }
+    }
+    
     if (isAuthenticated) {
-      setShowLandingPage(false);
+      fetchTasks();
     }
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      // Store Auth0 user ID in sessionStorage for Supabase integration
+      sessionStorage.setItem('auth0UserId', user.sub || user.id);
+      sessionStorage.setItem('auth0UserEmail', user.email);
+      console.log('Auth0 user ID stored for Supabase:', user.sub || user.id);
+      
+      // Other existing code...
+      setShowLandingPage(false);
+    }
+  }, [isAuthenticated, user]);
 
   const handleGetStarted = () => {
     if (isAuthenticated) {
@@ -62,6 +103,7 @@ function App() {
   const [completedAiTasks, setCompletedAiTasks] = useState(new Set());
   const [activeTaskId, setActiveTaskId] = useState(null);
   const [taskConversations, setTaskConversations] = useState({});
+  const [showMobileTasksModal, setShowMobileTasksModal] = useState(false);
 
   const getFilteredTasks = () => {
     switch (activeTab) {
@@ -280,45 +322,127 @@ function App() {
 
     try {
       const aiMetadata = await analyzeTask(inputValue);
+      if (!isAuthenticated) {
+        throw new Error('You must be logged in to add tasks');
+      }
       
-      setTodos([...todos, {
-        id: Date.now(),
+      const userId = user.sub || sessionStorage.getItem('auth0UserId') || 'auth0|default';
+      
+      const newTask = await addTask({
+        user_id: userId,
         text: aiMetadata.text,
         completed: false,
         section: aiMetadata.section,
         priority: aiMetadata.priority,
         aiExecutable: aiMetadata.aiExecutable,
-        dueDate: aiMetadata.dueDate,
-        analysis: aiMetadata.analysis
-      }]);
+        dueDate: aiMetadata.dueDate
+      });
+      
+      // Store analysis in React state but not in DB
+      setTodos([{
+        id: newTask.id,
+        text: newTask.text,
+        completed: newTask.completed,
+        section: newTask.section,
+        priority: newTask.priority,
+        aiExecutable: newTask.ai_executable,
+        dueDate: newTask.due_date,
+        analysis: aiMetadata.analysis // Only kept in React state
+      }, ...todos]);
+      
       setInputValue('');
     } catch (error) {
-      setError('Failed to analyze task. Please try again.');
-      console.error('Analysis error:', error);
+      setError('Failed to add task. Please try again.');
+      console.error('Add task error:', error);
     }
   };
 
-  const toggleTodo = (id) => {
-    setTodos(todos.map(todo =>
-      todo.id === id ? { ...todo, completed: !todo.completed } : todo
-    ));
-  };
+  const addSimpleTask = async () => {
+    if (!inputValue.trim()) return;
 
-  const deleteTodo = (id) => {
-    setTodos(todos.filter(todo => todo.id !== id));
-  };
-
-  const updateTask = (taskId, updates) => {
-    setTodos(todos.map(todo => {
-      if (todo.id === taskId) {
-        const updatedTodo = { ...todo, ...updates };
-        if (selectedTask && selectedTask.id === taskId) {
-          setSelectedTask(updatedTodo);
-        }
-        return updatedTodo;
+    try {
+      // Use Auth0 user ID directly
+      if (!isAuthenticated) {
+        throw new Error('You must be logged in to add tasks');
       }
-      return todo;
-    }));
+      
+      const userId = user.sub || sessionStorage.getItem('auth0UserId') || 'auth0|default';
+      
+      const newTask = await addTask({
+        user_id: userId,
+        text: inputValue,
+        completed: false,
+        section: 'Personal',
+        priority: 'Low',
+        aiExecutable: false
+      });
+      
+      // Convert to camelCase for React state
+      setTodos([{
+        id: newTask.id,
+        text: newTask.text,
+        completed: newTask.completed,
+        section: newTask.section,
+        priority: newTask.priority,
+        aiExecutable: newTask.ai_executable,
+        dueDate: newTask.due_date
+      }, ...todos]);
+      
+      setInputValue('');
+    } catch (error) {
+      setError('Failed to add task. Please try again.');
+      console.error('Add simple task error:', error);
+    }
+  };
+
+  const toggleTodo = async (id) => {
+    try {
+      // Find the task to toggle
+      const todoToUpdate = todos.find(todo => todo.id === id);
+      
+      // Update in the database
+      await updateTask(id, { 
+        completed: !todoToUpdate.completed 
+      });
+      
+      // Update local state
+      setTodos(todos.map(todo =>
+        todo.id === id ? { ...todo, completed: !todo.completed } : todo
+      ));
+    } catch (error) {
+      console.error('Error toggling task:', error);
+      setError('Failed to update task status.');
+    }
+  };
+
+  const deleteTodo = async (id) => {
+    try {
+      await deleteTask(id);
+      setTodos(todos.filter(todo => todo.id !== id));
+    } catch (error) {
+      console.error('Error deleting task:', error);
+      setError('Failed to delete task.');
+    }
+  };
+
+  const updateTaskDetails = async (taskId, updates) => {
+    try {
+      await updateTask(taskId, updates);
+      
+      setTodos(todos.map(todo => {
+        if (todo.id === taskId) {
+          const updatedTodo = { ...todo, ...updates };
+          if (selectedTask && selectedTask.id === taskId) {
+            setSelectedTask(updatedTodo);
+          }
+          return updatedTodo;
+        }
+        return todo;
+      }));
+    } catch (error) {
+      console.error('Error updating task:', error);
+      setError('Failed to update task details.');
+    }
   };
 
   const handleChatSubmit = async (e) => {
@@ -499,6 +623,20 @@ function App() {
   ];
 
   const renderContent = () => {
+    if (isLoadingTasks) {
+      return (
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="text-center">
+            <svg className="mx-auto animate-spin h-8 w-8 text-blue-500" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+            <p className="mt-3 text-gray-600">Loading your tasks...</p>
+          </div>
+        </div>
+      );
+    }
+
     if (activeTab === 'settings') {
       return (
         <div className="flex-1 flex items-center justify-center p-6">
@@ -825,7 +963,7 @@ function App() {
                         </span>
                         {todo.dueDate && (
                           <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-                            Due: {new Date(todo.dueDate).toDateString()}
+                            Due: {new Date(todo.dueDate).toLocaleDateString()}
                           </span>
                         )}
                       </div>
@@ -1050,19 +1188,7 @@ function App() {
                     
                     <button 
                       type="button"
-                      onClick={() => {
-                        if (!inputValue.trim()) return;
-                        setTodos([...todos, {
-                          id: Date.now(),
-                          text: inputValue,
-                          completed: false,
-                          section: 'Personal',
-                          priority: 'Low',
-                          aiExecutable: false,
-                          dueDate: null
-                        }]);
-                        setInputValue('');
-                      }}
+                      onClick={addSimpleTask}
                       className="px-3 py-2 bg-gray-600 hover:bg-gray-700 text-gray-700 text-sm rounded-lg 
                         focus:outline-none focus:ring-2 focus:ring-gray-500 flex items-center gap-1 
                         transition-colors duration-300 shadow-sm"
@@ -1119,7 +1245,7 @@ function App() {
                       <input
                         type="text"
                         value={selectedTask.text}
-                        onChange={(e) => updateTask(selectedTask.id, { text: e.target.value })}
+                        onChange={(e) => updateTaskDetails(selectedTask.id, { text: e.target.value })}
                         className="block w-full px-3 py-2 rounded-md border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200"
                       />
                     </div>
@@ -1131,7 +1257,7 @@ function App() {
                       <input
                         type="date"
                         value={selectedTask.dueDate ? new Date(selectedTask.dueDate).toISOString().split('T')[0] : ''}
-                        onChange={(e) => updateTask(selectedTask.id, { dueDate: e.target.value ? new Date(e.target.value).toISOString() : null })}
+                        onChange={(e) => updateTaskDetails(selectedTask.id, { dueDate: e.target.value ? new Date(e.target.value).toISOString() : null })}
                         className="block w-full px-3 py-2 rounded-md border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200"
                       />
                     </div>
@@ -1142,7 +1268,7 @@ function App() {
                       </label>
                       <select
                         value={selectedTask.priority}
-                        onChange={(e) => updateTask(selectedTask.id, { priority: e.target.value })}
+                        onChange={(e) => updateTaskDetails(selectedTask.id, { priority: e.target.value })}
                         className="block w-full px-3 py-2 rounded-md border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200"
                       >
                         <option value="High">High</option>
@@ -1157,7 +1283,7 @@ function App() {
                       </label>
                       <select
                         value={selectedTask.section}
-                        onChange={(e) => updateTask(selectedTask.id, { section: e.target.value })}
+                        onChange={(e) => updateTaskDetails(selectedTask.id, { section: e.target.value })}
                         className="block w-full px-3 py-2 rounded-md border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200"
                       >
                         <option value="Work">Work</option>
