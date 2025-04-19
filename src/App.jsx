@@ -35,12 +35,26 @@ import {
 function App() {
   const { isLoading, isAuthenticated, user } = useAuth();
 
+  // Move ALL state declarations to the top, BEFORE any useEffects
   const [todos, setTodos] = useState([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
-
-  const [showLandingPage, setShowLandingPage] = useState(() => {
-    return !isAuthenticated;
-  });
+  const [showLandingPage, setShowLandingPage] = useState(() => !isAuthenticated);
+  const [inputValue, setInputValue] = useState('');
+  const [activeTab, setActiveTab] = useState('inbox'); // This needs to be above any useEffect that uses it
+  const [error, setError] = useState(null);
+  const [selectedTask, setSelectedTask] = useState(null);
+  const [isEditPanelOpen, setIsEditPanelOpen] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [executionResult, setExecutionResult] = useState(null);
+  const [isResultPanelOpen, setIsResultPanelOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [taskDrafts, setTaskDrafts] = useState([]);
+  const [completedAiTasks, setCompletedAiTasks] = useState(new Set());
+  const [activeTaskId, setActiveTaskId] = useState(null);
+  const [taskConversations, setTaskConversations] = useState({});
+  const [showMobileTasksModal, setShowMobileTasksModal] = useState(false);
+  const [isPromptLoading, setIsPromptLoading] = useState(false);
 
   useEffect(() => {
     async function fetchTasks() {
@@ -49,8 +63,8 @@ function App() {
         const user = await getCurrentUser();
         
         if (user) {
+          // 1. Load tasks
           const taskData = await getTasks(user.id);
-          // Convert from snake_case to camelCase for React
           const formattedTasks = taskData.map(task => ({
             id: task.id,
             text: task.text,
@@ -62,6 +76,68 @@ function App() {
             analysis: task.analysis
           }));
           setTodos(formattedTasks);
+          
+          // 2. Load which tasks have been executed
+          const completedTaskIds = new Set();
+          const loadedTaskDrafts = [];
+          
+          // For each AI-executable task, check if it has executions
+          for (const task of formattedTasks) {
+            if (task.aiExecutable) {
+              console.log(`Checking executions for task: ${task.id} - ${task.text}`);
+              const executions = await getTaskExecutions(task.id);
+              console.log(`Found ${executions?.length || 0} executions`);
+              
+              if (executions && executions.length > 0) {
+                // Mark as completed
+                completedTaskIds.add(task.id);
+                
+                // Log the execution data
+                const latestExecution = executions[0];
+                console.log("Latest execution:", {
+                  taskId: task.id,
+                  response: latestExecution.response?.substring(0, 50) + "...",
+                  hasSearchResults: !!latestExecution.search_results,
+                  searchResultsType: typeof latestExecution.search_results
+                });
+                
+                // Load the task draft for display
+                loadedTaskDrafts.push({
+                  taskId: task.id,
+                  timestamp: new Date(latestExecution.timestamp).getTime(),
+                  task: task.text,
+                  response: latestExecution.response,
+                  searchResults: latestExecution.search_results || []
+                });
+              }
+            }
+          }
+          
+          // Update states
+          setCompletedAiTasks(completedTaskIds);
+          setTaskDrafts(loadedTaskDrafts);
+          
+          // If we have an "AI" tab active and there are completed tasks, set the first one as active
+          if (activeTab === 'AI' && loadedTaskDrafts.length > 0) {
+            setActiveTaskId(loadedTaskDrafts[0].taskId);
+            
+            // Also load the chat messages for this task
+            const conversations = await getTaskConversation(loadedTaskDrafts[0].taskId);
+            if (conversations && conversations.length > 0) {
+              setChatMessages(conversations.map(msg => ({
+                role: msg.role,
+                content: msg.content
+              })));
+              
+              setTaskConversations(prev => ({
+                ...prev,
+                [loadedTaskDrafts[0].taskId]: conversations.map(msg => ({
+                  role: msg.role,
+                  content: msg.content
+                }))
+              }));
+            }
+          }
         }
       } catch (error) {
         console.error('Error fetching tasks:', error);
@@ -74,7 +150,7 @@ function App() {
     if (isAuthenticated) {
       fetchTasks();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, activeTab]);
 
   useEffect(() => {
     if (isAuthenticated && user) {
@@ -93,22 +169,6 @@ function App() {
       setShowLandingPage(false);
     }
   };
-
-  const [inputValue, setInputValue] = useState('');
-  const [activeTab, setActiveTab] = useState('inbox');
-  const [error, setError] = useState(null);
-  const [selectedTask, setSelectedTask] = useState(null);
-  const [isEditPanelOpen, setIsEditPanelOpen] = useState(false);
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [executionResult, setExecutionResult] = useState(null);
-  const [isResultPanelOpen, setIsResultPanelOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState([]);
-  const [chatInput, setChatInput] = useState('');
-  const [taskDrafts, setTaskDrafts] = useState([]);
-  const [completedAiTasks, setCompletedAiTasks] = useState(new Set());
-  const [activeTaskId, setActiveTaskId] = useState(null);
-  const [taskConversations, setTaskConversations] = useState({});
-  const [showMobileTasksModal, setShowMobileTasksModal] = useState(false);
 
   const getFilteredTasks = () => {
     switch (activeTab) {
@@ -160,18 +220,22 @@ function App() {
     setActiveTaskId(task.id);
     
     try {
-      // Load existing conversation from database
+      // 1. Load user
       const user = await getCurrentUser();
+      
+      // 2. Load conversation history
       const conversationHistory = await getTaskConversation(task.id);
       
+      // 3. Load task executions
+      const taskExecutions = await getTaskExecutions(task.id);
+      
+      // 4. Update chat messages UI
       if (conversationHistory && conversationHistory.length > 0) {
-        // Format for your UI
         setChatMessages(conversationHistory.map(msg => ({
           role: msg.role,
           content: msg.content
         })));
         
-        // Update conversations state
         setTaskConversations(prev => ({
           ...prev,
           [task.id]: conversationHistory.map(msg => ({
@@ -179,12 +243,38 @@ function App() {
             content: msg.content
           }))
         }));
-      } else if (!completedAiTasks.has(task.id)) {
-        // If no history found, execute the task
+      }
+      
+      // 5. If we have executions, reconstruct the task draft for ReactMarkdown display
+      if (taskExecutions && taskExecutions.length > 0) {
+        const latestExecution = taskExecutions[0]; // Most recent execution
+        
+        // Set as completed task
+        setCompletedAiTasks(prev => new Set([...prev, task.id]));
+        
+        // Reconstruct task draft for display in ReactMarkdown component
+        setTaskDrafts(prev => {
+          // Remove any existing draft for this task
+          const filtered = prev.filter(draft => draft.taskId !== task.id);
+          
+          // Add the reconstructed draft
+          return [{
+            taskId: task.id,
+            timestamp: new Date(latestExecution.timestamp).getTime(),
+            task: task.text,
+            response: latestExecution.response,
+            searchResults: latestExecution.search_results || []
+          }, ...filtered];
+        });
+        
+        console.log("Loaded task execution with response:", latestExecution.response);
+      } else if (!completedAiTasks.has(task.id) && task.aiExecutable) {
+        // If no history found AND the task is AI-executable AND not already executed, then execute it
+        console.log("No task execution history found, executing task:", task.id);
         executeAiTask(task);
       }
     } catch (error) {
-      console.error('Error loading conversation history:', error);
+      console.error('Error loading task data:', error);
     }
   };
 
@@ -223,6 +313,12 @@ function App() {
         content: task.text
       });
       
+      console.log("Executing AI task:", {
+        id: task.id,
+        text: task.text,
+        analysis: task.analysis?.substring(0, 50) + '...'
+      });
+
       const response = await fetch('http://localhost:3000/api/execute-task', {
         method: 'POST',
         headers: {
@@ -258,18 +354,12 @@ function App() {
         for (const eventText of events) {
           if (eventText.startsWith('data: ')) {
             const jsonData = eventText.slice(6);
+            console.log("Received data chunk:", jsonData.substring(0, 50) + '...');
             try {
               const data = JSON.parse(jsonData);
               
-              if (data.type === 'search_results') {
-                searchResults = data.searchResults;
-                setTaskDrafts(prev => prev.map(draft => 
-                  draft.taskId === task.id 
-                    ? { ...draft, searchResults: data.searchResults }
-                    : draft
-                ));
-              } 
-              else if (data.type === 'content_chunk') {
+              if (data.type === 'content_chunk') {
+                console.log("Content chunk received, length:", data.content.length);
                 streamedResponse += data.content;
                 
                 setTaskDrafts(prev => prev.map(draft => 
@@ -310,6 +400,14 @@ function App() {
                   }
                 });
               }
+              else if (data.type === 'search_results') {
+                searchResults = data.searchResults;
+                setTaskDrafts(prev => prev.map(draft => 
+                  draft.taskId === task.id 
+                    ? { ...draft, searchResults: data.searchResults }
+                    : draft
+                ));
+              } 
               else if (data.type === 'completion') {
                 setCompletedAiTasks(prev => new Set([...prev, task.id]));
                 
@@ -319,7 +417,7 @@ function App() {
                       ? { 
                           ...draft, 
                           response: data.response,
-                          searchResults: data.searchResults || draft.searchResults
+                          searchResults: searchResults || [] // If you have search results
                         }
                       : draft
                   ));
@@ -373,6 +471,7 @@ function App() {
     if (!inputValue.trim()) return;
 
     setError(null);
+    setIsPromptLoading(true); // Start loading
 
     try {
       const aiMetadata = await analyzeTask(inputValue);
@@ -408,6 +507,8 @@ function App() {
     } catch (error) {
       setError('Failed to add task. Please try again.');
       console.error('Add task error:', error);
+    } finally {
+      setIsPromptLoading(false); // End loading regardless of outcome
     }
   };
 
@@ -504,10 +605,18 @@ function App() {
     if (!chatInput.trim() || !activeTaskId) return;
 
     try {
+      setIsExecuting(true);
+      
+      // Get current user
       const user = await getCurrentUser();
       const newUserMessage = { role: 'user', content: chatInput };
       
-      // Save to database
+      // Find the current active task draft to include its response
+      const currentTaskDraft = taskDrafts.find(draft => draft.taskId === activeTaskId);
+      console.log("Current task draft:", currentTaskDraft); // Debug log
+      const currentResponse = currentTaskDraft?.response || '';
+      
+      // Save user message to database
       await saveConversationMessage({
         taskId: activeTaskId,
         userId: user.id,
@@ -515,22 +624,102 @@ function App() {
         content: chatInput
       });
       
-      // Update UI
+      // Update UI immediately with user message
       setChatMessages(prev => [...prev, newUserMessage]);
       setChatInput('');
       
-      // Rest of your code for handling AI response...
+      // Make server request with CONTEXT from previous response
+      console.log("Sending follow-up with context length:", currentResponse.length); // Debug log
+      const response = await fetch('http://localhost:3000/api/execute-task', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          text: chatInput,
+          context: currentResponse, // Include current response as context
+          taskId: activeTaskId,
+          isFollowUp: true
+        })
+      });
       
-      // After receiving AI response, save it
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`);
+      }
+      
+      // Process streaming response
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      
+      let streamedResponse = '';
+      
+      // Add a placeholder for the assistant's response
+      setChatMessages(prev => [...prev, { role: 'assistant', content: 'Thinking...' }]);
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) {
+          break;
+        }
+        
+        // Process chunk
+        const chunk = decoder.decode(value);
+        const events = chunk.split('\n\n').filter(Boolean);
+        
+        for (const eventText of events) {
+          if (eventText.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(eventText.slice(6));
+              
+              if (data.type === 'content_chunk') {
+                streamedResponse += data.content;
+                
+                // Update UI with streaming response
+                setChatMessages(prev => {
+                  const newMessages = [...prev];
+                  const lastIndex = newMessages.length - 1;
+                  if (lastIndex >= 0 && newMessages[lastIndex].role === 'assistant') {
+                    newMessages[lastIndex] = { role: 'assistant', content: streamedResponse };
+                  }
+                  return newMessages;
+                });
+              }
+            } catch (e) {
+              console.error('Error parsing event data:', e);
+            }
+          }
+        }
+      }
+      
+      // Save the AI response to database
       await saveConversationMessage({
         taskId: activeTaskId,
         userId: user.id,
         role: 'assistant',
-        content: aiResponse
+        content: streamedResponse
       });
+      
+      // Update the task draft with the new response
+      setTaskDrafts(prev => {
+        return prev.map(draft => 
+          draft.taskId === activeTaskId
+            ? { ...draft, response: streamedResponse }
+            : draft
+        );
+      });
+      
+      // Mark as completed if not already
+      setCompletedAiTasks(prev => new Set([...prev, activeTaskId]));
       
     } catch (error) {
       console.error('Chat error:', error);
+      setChatMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: 'Sorry, I encountered an error processing your request.' 
+      }]);
+    } finally {
+      setIsExecuting(false);
     }
   };
 
@@ -619,64 +808,31 @@ function App() {
                     Select an AI-executable task from the right panel to start working with your AI assistant.
                   </p>
                 </div>
-              ) : (
+              ) : activeTaskId ? (
+                // Show only the active task if there's an active task ID
                 <div className="space-y-4 pb-4">
                   {taskDrafts
-                    .filter(draft => !activeTaskId || draft.taskId === activeTaskId)
+                    .filter(draft => draft.taskId === activeTaskId)
                     .map((draft, index) => (
-                      <div key={index} className="bg-white rounded-lg shadow-sm p-5 border border-gray-100">
-                        {/* Existing task draft content */}
-                        <div className="flex justify-between items-start mb-3">
-                          <div className="text-sm font-medium text-gray-900 px-3 py-1 bg-blue-50 rounded-md">
-                            {draft.task}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => {
-                                navigator.clipboard.writeText(draft.response);
-                                const btn = document.getElementById(`copy-btn-${index}`);
-                                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" /></svg><span>Copied!</span>';
-                                setTimeout(() => {
-                                  btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" /><path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" /></svg><span>Copy</span>';
-                                }, 2000);
-                              }}
-                              id={`copy-btn-${index}`}
-                              className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-50 hover:bg-gray-100 rounded transition-colors"
-                            >
-                              <ClipboardDocumentIcon className="h-3 w-3" />
-                              <span>Copy</span>
-                            </button>
-                            <div className="text-xs text-gray-500">
-                              {new Date(draft.timestamp).toLocaleString()}
-                            </div>
-                          </div>
-                        </div>
+                      <div key={draft.taskId} className="bg-white rounded-lg shadow-sm p-5 border border-gray-100">
+                        {/* Task display... */}
                         <div className="prose prose-sm w-full max-w-none overflow-hidden break-words text-sm text-gray-600 bg-gray-50 p-4 rounded-lg">
                           <div className="overflow-x-auto">
-                            <ReactMarkdown>{draft.response}</ReactMarkdown>
+                            <ReactMarkdown>{draft.response || "No response available"}</ReactMarkdown>
                           </div>
                         </div>
-                        {draft.searchResults?.length > 0 && (
-                          <div className="mt-3 pt-3 border-t border-gray-100">
-                            <div className="text-xs font-medium text-gray-700 mb-2">Sources:</div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              {draft.searchResults.map((result, idx) => (
-                                <a
-                                  key={idx}
-                                  href={result.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="block text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 hover:text-blue-700 p-2 rounded truncate transition-colors"
-                                  title={result.title || "Source link"}
-                                >
-                                  {result.title}
-                                </a>
-                              ))}
-                            </div>
-                          </div>
-                        )}
+                        {/* Rest of your rendering code... */}
                       </div>
                     ))}
+                </div>
+              ) : (
+                // If no active task ID but we have drafts, show all drafts
+                <div className="space-y-4 pb-4">
+                  {taskDrafts.map((draft, index) => (
+                    <div key={draft.taskId} className="bg-white rounded-lg shadow-sm p-5 border border-gray-100">
+                      {/* Task display... */}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -891,14 +1047,13 @@ function App() {
 
                   {todo.aiExecutable && (
                     <button
-                      className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
                       onClick={(e) => {
                         e.stopPropagation();
                         executeAiTask(todo);
                       }}
-                      disabled={isExecuting}
+                      className="p-2 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-full transition-colors"
                     >
-                      {isExecuting ? (
+                      {isExecuting && activeTaskId === todo.id ? (
                         <svg className="animate-spin h-5 w-5 text-blue-500" viewBox="0 0 24 24">
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
@@ -1120,13 +1275,25 @@ function App() {
                     <button 
                       type="button"
                       onClick={handleSubmit}
-                      disabled={isLoading || !inputValue.trim()}
+                      disabled={isPromptLoading || !inputValue.trim()}
                       className="px-3 py-2 bg-gradient-to-r from-blue-700 to-blue-500 hover:from-blue-700 hover:to-blue-600
                       text-white text-sm rounded-lg shadow-sm transition-all duration-300 flex items-center gap-1 
                       disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <SparklesIcon className="h-4 w-4" />
-                      <span className="hidden md:inline">Prompt</span>
+                      {isPromptLoading ? (
+                        <>
+                          <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                          <span className="hidden md:inline">Analyzing...</span>
+                        </>
+                      ) : (
+                        <>
+                          <SparklesIcon className="h-4 w-4" />
+                          <span className="hidden md:inline">Prompt</span>
+                        </>
+                      )}
                     </button>
                   </div>
                   {error && (

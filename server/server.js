@@ -59,12 +59,19 @@ async function performBraveSearch(query) {
 // Task execution endpoint with streaming
 app.post('/api/execute-task', optionalAuth, async (req, res) => {
   try {
-    const { text, context, taskId } = req.body
+    const { text, context, taskId, isFollowUp } = req.body;
+    console.log("Request received:", { 
+      taskId,
+      textLength: text.length,
+      contextAvailable: !!context,
+      contextLength: context?.length || 0,
+      isFollowUp: !!isFollowUp
+    });
     
     // Set up headers for streaming
-    res.setHeader('Content-Type', 'text/event-stream')
-    res.setHeader('Cache-Control', 'no-cache')
-    res.setHeader('Connection', 'keep-alive')
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
     
     // First, analyze if search is needed (non-streaming for this part)
     const analysisResponse = await openai.chat.completions.create({
@@ -96,16 +103,24 @@ app.post('/api/execute-task', optionalAuth, async (req, res) => {
     }
 
     // Prepare messages for the chat - use context if available
-    const messages = context && Array.isArray(context) ? 
-      [...context] : 
-      [
-        {
-          role: "system",
-          content: `You are an AI task executor that helps complete tasks efficiently. 
-                   If search results are provided, use them as context for the task.
-                   Provide structured, detailed responses.`
-        }
-      ]
+    const messages = [
+      {
+        role: "system",
+        content: `You are an AI task executor that helps complete tasks efficiently.
+                 ${isFollowUp ? 
+                  `This is a follow-up request. The user previously received this response:
+                   ===PREVIOUS RESPONSE===
+                   ${context || ''}
+                   ===END OF PREVIOUS RESPONSE===
+                   
+                   Make TARGETED amendments to the previous response based on the user's new request.
+                   Keep everything that is still relevant. Only update parts that need changing.
+                   Return a complete, updated version of the entire response.` 
+                  : 
+                  `If search results are provided, use them as context for the task.
+                   Provide structured, detailed responses.`}` 
+      }
+    ];
     
     // Add search results to context if available
     if (searchResults.length > 0 && !context) {
@@ -118,7 +133,9 @@ app.post('/api/execute-task', optionalAuth, async (req, res) => {
     // Add the user's request
     messages.push({
       role: "user",
-      content: context ? text : `Execute this task: ${text}`
+      content: isFollowUp ? 
+        `Based on the previous response, ${text}` : 
+        `Execute this task: ${text}`
     })
 
     // Execute task with streaming

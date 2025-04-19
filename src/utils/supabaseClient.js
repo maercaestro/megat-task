@@ -73,21 +73,29 @@ export const deleteTask = async (taskId) => {
   return true;
 };
 
-// AI task execution history
+// Task executions (AI responses)
 export const saveTaskExecution = async (execution) => {
+  // Make sure searchResults is properly stringified if it's an object
+  const searchResultsData = 
+    typeof execution.searchResults === 'string' 
+      ? execution.searchResults 
+      : JSON.stringify(execution.searchResults);
+  
   const { data, error } = await supabase
     .from('task_executions')
     .insert([{
       task_id: execution.taskId,
       user_id: execution.userId,
-      task_text: execution.taskText,
       response: execution.response,
-      timestamp: new Date(),
-      search_results: execution.searchResults || []
+      search_results: searchResultsData,
+      timestamp: new Date()
     }])
     .select();
   
-  if (error) throw error;
+  if (error) {
+    console.error("Error saving task execution:", error);
+    throw error;
+  }
   return data && data[0];
 };
 
@@ -98,8 +106,18 @@ export const getTaskExecutions = async (taskId) => {
     .eq('task_id', taskId)
     .order('timestamp', { ascending: false });
   
-  if (error) throw error;
-  return data || [];
+  if (error) {
+    console.error("Error getting task executions:", error);
+    throw error;
+  }
+  
+  // Make sure we parse the search_results JSON if it exists
+  return data ? data.map(item => ({
+    ...item,
+    search_results: item.search_results ? 
+      (typeof item.search_results === 'string' ? 
+        JSON.parse(item.search_results) : item.search_results) : []
+  })) : [];
 };
 
 // Task conversations (chat messages)
