@@ -287,6 +287,59 @@ app.post('/api/analyze-task', optionalAuth, async (req, res) => {
   }
 })
 
+// Add this new endpoint for follow-ups
+app.post('/api/followup', optionalAuth, async (req, res) => {
+  try {
+    const { text, originalText, previousResponse, taskId } = req.body;
+    
+    console.log("Follow-up request:", {
+      taskId,
+      hasOriginalText: !!originalText,
+      hasPreviousResponse: !!previousResponse,
+      followUpText: text
+    });
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are an AI assistant helping with a follow-up request.
+                  The user previously received this response to their task:
+                  
+                  ORIGINAL TASK: ${originalText}
+                  
+                  PREVIOUS RESPONSE:
+                  ${previousResponse}
+                  
+                  Now the user wants you to update the response with these changes:
+                  ${text}
+                  
+                  Return the COMPLETE updated response that incorporates these changes.`
+        },
+        {
+          role: "user",
+          content: text
+        }
+      ]
+    });
+    
+    const result = response.choices[0].message.content;
+    
+    res.json({
+      response: result,
+      taskId
+    });
+    
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ 
+      error: 'Failed to process follow-up',
+      details: error.message 
+    });
+  }
+});
+
 // Start server
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {

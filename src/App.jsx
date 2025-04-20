@@ -12,7 +12,8 @@ import {
   Cog6ToothIcon,
   ClipboardDocumentIcon,
   ArrowRightIcon,
-  ArrowLeftIcon
+  ArrowLeftIcon,
+  PencilIcon // Import PencilIcon for Edit button
 } from '@heroicons/react/24/solid';
 import ReactMarkdown from 'react-markdown';
 import LandingPage from './components/LandingPage';
@@ -49,19 +50,21 @@ function App() {
   const [isResultPanelOpen, setIsResultPanelOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
-  const [taskDrafts, setTaskDrafts] = useState([]);
   const [completedAiTasks, setCompletedAiTasks] = useState(new Set());
   const [activeTaskId, setActiveTaskId] = useState(null);
   const [taskConversations, setTaskConversations] = useState({});
   const [showMobileTasksModal, setShowMobileTasksModal] = useState(false);
   const [isPromptLoading, setIsPromptLoading] = useState(false);
+  const [taskExecutionsByTask, setTaskExecutionsByTask] = useState({});
+  const [editingDraftId, setEditingDraftId] = useState(null); // ID of the draft being edited
+  const [editingDraftContent, setEditingDraftContent] = useState(''); // Content being edited
 
   useEffect(() => {
     async function fetchTasks() {
       try {
         setIsLoadingTasks(true);
         const user = await getCurrentUser();
-        
+
         if (user) {
           // 1. Load tasks
           const taskData = await getTasks(user.id);
@@ -76,67 +79,58 @@ function App() {
             analysis: task.analysis
           }));
           setTodos(formattedTasks);
-          
-          // 2. Load which tasks have been executed
+
+          // 2. Load executions for AI tasks
           const completedTaskIds = new Set();
-          const loadedTaskDrafts = [];
-          
-          // For each AI-executable task, check if it has executions
+          const loadedExecutions = {}; // Use an object to store executions by task ID
+
           for (const task of formattedTasks) {
             if (task.aiExecutable) {
               console.log(`Checking executions for task: ${task.id} - ${task.text}`);
+              // Fetch executions ordered by timestamp (newest first)
               const executions = await getTaskExecutions(task.id);
               console.log(`Found ${executions?.length || 0} executions`);
-              
+
               if (executions && executions.length > 0) {
-                // Mark as completed
                 completedTaskIds.add(task.id);
-                
-                // Log the execution data
-                const latestExecution = executions[0];
-                console.log("Latest execution:", {
+                // Store all executions for this task
+                loadedExecutions[task.id] = executions.map(exec => ({
+                  executionId: exec.id, // Store execution ID
                   taskId: task.id,
-                  response: latestExecution.response?.substring(0, 50) + "...",
-                  hasSearchResults: !!latestExecution.search_results,
-                  searchResultsType: typeof latestExecution.search_results
-                });
-                
-                // Load the task draft for display
-                loadedTaskDrafts.push({
-                  taskId: task.id,
-                  timestamp: new Date(latestExecution.timestamp).getTime(),
-                  task: task.text,
-                  response: latestExecution.response,
-                  searchResults: latestExecution.search_results || []
-                });
+                  timestamp: new Date(exec.timestamp).getTime(),
+                  task: task.text, // Keep original task text for context if needed
+                  response: exec.response,
+                  searchResults: exec.search_results || []
+                }));
               }
             }
           }
-          
+
           // Update states
           setCompletedAiTasks(completedTaskIds);
-          setTaskDrafts(loadedTaskDrafts);
-          
-          // If we have an "AI" tab active and there are completed tasks, set the first one as active
-          if (activeTab === 'AI' && loadedTaskDrafts.length > 0) {
-            setActiveTaskId(loadedTaskDrafts[0].taskId);
-            
-            // Also load the chat messages for this task
-            const conversations = await getTaskConversation(loadedTaskDrafts[0].taskId);
-            if (conversations && conversations.length > 0) {
-              setChatMessages(conversations.map(msg => ({
-                role: msg.role,
-                content: msg.content
-              })));
-              
-              setTaskConversations(prev => ({
-                ...prev,
-                [loadedTaskDrafts[0].taskId]: conversations.map(msg => ({
-                  role: msg.role,
-                  content: msg.content
-                }))
-              }));
-            }
+          setTaskExecutionsByTask(loadedExecutions); // Update the new state
+
+          // If AI tab is active, set the first task with executions as active
+          if (activeTab === 'AI') {
+              const firstExecutedTaskId = Object.keys(loadedExecutions)[0];
+              if (firstExecutedTaskId) {
+                  setActiveTaskId(firstExecutedTaskId);
+                  // Load conversation for the first active task
+                  const conversations = await getTaskConversation(firstExecutedTaskId);
+                   if (conversations && conversations.length > 0) {
+                      setChatMessages(conversations.map(msg => ({
+                          role: msg.role,
+                          content: msg.content
+                      })));
+                      setTaskConversations(prev => ({
+                          ...prev,
+                          [firstExecutedTaskId]: conversations.map(msg => ({
+                              role: msg.role,
+                              content: msg.content
+                          }))
+                      }));
+                  }
+              }
           }
         }
       } catch (error) {
@@ -146,11 +140,11 @@ function App() {
         setIsLoadingTasks(false);
       }
     }
-    
+
     if (isAuthenticated) {
       fetchTasks();
     }
-  }, [isAuthenticated, activeTab]);
+  }, [isAuthenticated, activeTab]); // Keep activeTab dependency
 
   useEffect(() => {
     if (isAuthenticated && user) {
@@ -218,24 +212,18 @@ function App() {
 
   const handleTaskSelect = async (task) => {
     setActiveTaskId(task.id);
-    
+    setChatMessages([]); // Clear chat when selecting a new task initially
+  
     try {
-      // 1. Load user
       const user = await getCurrentUser();
-      
-      // 2. Load conversation history
+  
+      // 1. Load conversation history for the selected task
       const conversationHistory = await getTaskConversation(task.id);
-      
-      // 3. Load task executions
-      const taskExecutions = await getTaskExecutions(task.id);
-      
-      // 4. Update chat messages UI
       if (conversationHistory && conversationHistory.length > 0) {
         setChatMessages(conversationHistory.map(msg => ({
           role: msg.role,
           content: msg.content
         })));
-        
         setTaskConversations(prev => ({
           ...prev,
           [task.id]: conversationHistory.map(msg => ({
@@ -244,37 +232,39 @@ function App() {
           }))
         }));
       }
-      
-      // 5. If we have executions, reconstruct the task draft for ReactMarkdown display
-      if (taskExecutions && taskExecutions.length > 0) {
-        const latestExecution = taskExecutions[0]; // Most recent execution
-        
-        // Set as completed task
-        setCompletedAiTasks(prev => new Set([...prev, task.id]));
-        
-        // Reconstruct task draft for display in ReactMarkdown component
-        setTaskDrafts(prev => {
-          // Remove any existing draft for this task
-          const filtered = prev.filter(draft => draft.taskId !== task.id);
-          
-          // Add the reconstructed draft
-          return [{
-            taskId: task.id,
-            timestamp: new Date(latestExecution.timestamp).getTime(),
-            task: task.text,
-            response: latestExecution.response,
-            searchResults: latestExecution.search_results || []
-          }, ...filtered];
-        });
-        
-        console.log("Loaded task execution with response:", latestExecution.response);
-      } else if (!completedAiTasks.has(task.id) && task.aiExecutable) {
-        // If no history found AND the task is AI-executable AND not already executed, then execute it
-        console.log("No task execution history found, executing task:", task.id);
-        executeAiTask(task);
+  
+      // 2. Check if executions are already loaded
+      if (!taskExecutionsByTask[task.id]) {
+        // If not loaded, fetch them now
+        const executions = await getTaskExecutions(task.id);
+        if (executions && executions.length > 0) {
+          setTaskExecutionsByTask(prev => ({
+            ...prev,
+            [task.id]: executions.map(exec => ({
+              executionId: exec.id,
+              taskId: task.id,
+              timestamp: new Date(exec.timestamp).getTime(),
+              task: task.text,
+              response: exec.response,
+              searchResults: exec.search_results || []
+            }))
+          }));
+          setCompletedAiTasks(prev => new Set([...prev, task.id]));
+        } else if (task.aiExecutable) {
+          // If no executions found and it's executable, run it
+          console.log("No executions found, executing task:", task.id);
+          executeAiTask(task); // This will add the first execution
+        }
+      } else {
+          // Executions already loaded, ensure completed status is set
+          if (!completedAiTasks.has(task.id) && taskExecutionsByTask[task.id]?.length > 0) {
+               setCompletedAiTasks(prev => new Set([...prev, task.id]));
+          }
       }
+  
     } catch (error) {
       console.error('Error loading task data:', error);
+      setError('Failed to load task details.');
     }
   };
 
@@ -282,187 +272,212 @@ function App() {
     try {
       setIsExecuting(true);
       setActiveTaskId(task.id);
-      
-      setTaskDrafts(prev => {
-        if (!prev.find(draft => draft.taskId === task.id)) {
-          return [{
-            taskId: task.id,
-            timestamp: Date.now(),
-            task: task.text,
-            response: '',
-            searchResults: []
-          }, ...prev];
+      console.log(`[executeAiTask] Started for task ${task.id}`);
+
+      // Add a placeholder draft immediately if none exists
+      setTaskExecutionsByTask(prev => {
+        if (!prev[task.id] || prev[task.id].length === 0) {
+          return {
+            ...prev,
+            [task.id]: [{
+              executionId: `temp-${Date.now()}`, // Temporary ID
+              taskId: task.id,
+              timestamp: Date.now(),
+              task: task.text,
+              response: "Generating...", // Placeholder text
+              searchResults: []
+            }]
+          };
         }
-        return prev;
+        return prev; // Return existing if drafts already present
       });
-      
+
+
       const initialMessage = { role: 'user', content: task.text };
       setTaskConversations(prev => ({
         ...prev,
         [task.id]: [initialMessage]
       }));
-      
-      setChatMessages([initialMessage]);
+      setChatMessages([initialMessage, { role: 'assistant', content: 'Generating...' }]); // Add placeholder to chat too
 
-      // Save the initial user query to conversation history
+      // ... (save initial user message to DB) ...
       const user = await getCurrentUser();
-      await saveConversationMessage({
-        taskId: task.id,
-        userId: user.id,
-        role: 'user',
-        content: task.text
-      });
-      
-      console.log("Executing AI task:", {
-        id: task.id,
-        text: task.text,
-        analysis: task.analysis?.substring(0, 50) + '...'
-      });
+       await saveConversationMessage({
+          taskId: task.id,
+          userId: user.id,
+          role: 'user',
+          content: task.text
+        });
+
+
+      console.log("Executing AI task:", { /* ... */ });
 
       const response = await fetch('http://localhost:3000/api/execute-task', {
-        method: 'POST',
+        method: 'POST', // Ensure this is correctly specified
         headers: {
           'Content-Type': 'application/json',
+          // Add any other headers if needed, e.g., Authorization
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           text: task.text,
-          context: task.analysis,
-          taskId: task.id
+          taskId: task.id,
+          isFollowUp: false // Explicitly set for initial execution
+          // context: null // Explicitly null if not needed
         })
       });
-      
+
+      console.log(`[executeAiTask] Fetch response status: ${response.status}`); // Log status
+
       if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`);
+        const errorText = await response.text();
+        console.error(`[executeAiTask] Server error response: ${errorText}`);
+        throw new Error(`Server error: ${response.status} - ${errorText}`);
       }
-      
+
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      
+
       let streamedResponse = '';
       let searchResults = [];
-      
+      let finalExecutionData = null; // To store the final data from the 'completion' event
+
       while (true) {
         const { done, value } = await reader.read();
-        
-        if (done) {
-          break;
-        }
-        
+        if (done) break;
+
         const chunk = decoder.decode(value);
         const events = chunk.split('\n\n').filter(Boolean);
-        
+
         for (const eventText of events) {
           if (eventText.startsWith('data: ')) {
-            const jsonData = eventText.slice(6);
-            console.log("Received data chunk:", jsonData.substring(0, 50) + '...');
             try {
+              const jsonData = eventText.slice(6);
               const data = JSON.parse(jsonData);
-              
+
               if (data.type === 'content_chunk') {
-                console.log("Content chunk received, length:", data.content.length);
                 streamedResponse += data.content;
-                
-                setTaskDrafts(prev => prev.map(draft => 
-                  draft.taskId === task.id 
-                    ? { ...draft, response: streamedResponse }
-                    : draft
-                ));
-                
-                const assistantMessage = { 
-                  role: 'assistant', 
-                  content: streamedResponse 
-                };
-                
-                setTaskConversations(prev => {
-                  const currentConversation = prev[task.id] || [initialMessage];
-                  if (currentConversation.find(msg => msg.role === 'assistant')) {
-                    return {
-                      ...prev,
-                      [task.id]: currentConversation.map(msg => 
-                        msg.role === 'assistant' ? assistantMessage : msg
-                      )
-                    };
-                  } else {
-                    return {
-                      ...prev,
-                      [task.id]: [...currentConversation, assistantMessage]
-                    };
-                  }
+
+                // --- UPDATE DRAFT STATE DURING STREAM ---
+                setTaskExecutionsByTask(prev => {
+                  const currentTaskExecutions = prev[task.id] || [];
+                  // Update the first (latest) draft's response
+                  const updatedExecutions = currentTaskExecutions.map((exec, index) =>
+                    index === 0 ? { ...exec, response: streamedResponse } : exec
+                  );
+                  return { ...prev, [task.id]: updatedExecutions };
                 });
-                
+                // --- END DRAFT UPDATE ---
+
+                // Update chat placeholder
                 setChatMessages(prev => {
-                  if (prev.find(msg => msg.role === 'assistant')) {
-                    return prev.map(msg => 
-                      msg.role === 'assistant' ? assistantMessage : msg
-                    );
-                  } else {
-                    return [...prev, assistantMessage];
+                  const newMessages = [...prev];
+                  const assistantIndex = newMessages.findIndex(msg => msg.role === 'assistant');
+                  if (assistantIndex !== -1) {
+                    newMessages[assistantIndex] = { role: 'assistant', content: streamedResponse };
                   }
-                });
-              }
-              else if (data.type === 'search_results') {
-                searchResults = data.searchResults;
-                setTaskDrafts(prev => prev.map(draft => 
-                  draft.taskId === task.id 
-                    ? { ...draft, searchResults: data.searchResults }
-                    : draft
-                ));
-              } 
-              else if (data.type === 'completion') {
-                setCompletedAiTasks(prev => new Set([...prev, task.id]));
-                
-                if (data.response && data.response !== streamedResponse) {
-                  setTaskDrafts(prev => prev.map(draft => 
-                    draft.taskId === task.id 
-                      ? { 
-                          ...draft, 
-                          response: data.response,
-                          searchResults: searchResults || [] // If you have search results
-                        }
-                      : draft
-                  ));
-                }
-
-                // After receiving the AI response
-                await saveConversationMessage({
-                  taskId: task.id,
-                  userId: user.id,
-                  role: 'assistant',
-                  content: streamedResponse // or finalResponse
+                  return newMessages;
                 });
 
-                // Save execution results with search data
-                await saveTaskExecution({
-                  taskId: task.id,
-                  userId: user.id,
-                  response: streamedResponse,
-                  searchResults: searchResults || [] // If you have search results
+              } else if (data.type === 'search_results') {
+                searchResults = data.results || [];
+                // Update the draft with search results if needed (optional during stream)
+                setTaskExecutionsByTask(prev => {
+                   const currentTaskExecutions = prev[task.id] || [];
+                   const updatedExecutions = currentTaskExecutions.map((exec, index) =>
+                      index === 0 ? { ...exec, searchResults: searchResults } : exec
+                   );
+                   return { ...prev, [task.id]: updatedExecutions };
                 });
-              }
-              else if (data.type === 'error') {
-                throw new Error(data.details || 'Server error');
+
+              } else if (data.type === 'completion') {
+                // Store the final data from the completion event
+                finalExecutionData = data;
+                streamedResponse = data.response; // Ensure final response is captured
+                searchResults = data.searchResults || [];
+              } else if (data.type === 'error') {
+                throw new Error(data.details || data.error || 'Unknown server error');
               }
             } catch (e) {
-              console.error('Error parsing event data:', e);
+              console.error("Error parsing event data:", e, "Data:", eventText);
             }
           }
         }
       }
+
+      // --- SAVE FINAL EXECUTION AFTER STREAM ---
+      try {
+        const userId = user.id || user.sub;
+
+        // Use finalExecutionData if available, otherwise use streamedResponse
+        const finalResponseToSave = finalExecutionData?.response ?? streamedResponse;
+        const finalSearchResultsToSave = finalExecutionData?.searchResults ?? searchResults;
+
+
+        // Save the final execution to the database
+        const savedExecution = await saveTaskExecution({
+          taskId: task.id,
+          userId: userId,
+          response: finalResponseToSave,
+          searchResults: finalSearchResultsToSave
+        });
+
+        // Create the final execution object for the state
+        const finalExecutionState = {
+          executionId: savedExecution.id, // Use the real ID from DB
+          taskId: task.id,
+          timestamp: new Date(savedExecution.timestamp).getTime(),
+          task: task.text,
+          response: finalResponseToSave,
+          searchResults: finalSearchResultsToSave
+        };
+
+        // Update the state: Replace the temporary draft with the final one
+        setTaskExecutionsByTask(prev => {
+          const currentTaskExecutions = prev[task.id] || [];
+          // Replace the first draft (which might have a temp ID) with the final saved one
+          const updatedExecutions = [finalExecutionState, ...currentTaskExecutions.slice(1)];
+          return { ...prev, [task.id]: updatedExecutions };
+        });
+
+        // Save final assistant message to conversation history
+         await saveConversationMessage({
+            taskId: task.id,
+            userId: userId,
+            role: 'assistant',
+            content: finalResponseToSave
+         });
+
+         // Update chat UI with final message (might be redundant if streaming worked perfectly)
+         setChatMessages(prev => {
+             const newMessages = [...prev];
+             const assistantIndex = newMessages.findIndex(msg => msg.role === 'assistant');
+             if (assistantIndex !== -1) {
+                 newMessages[assistantIndex] = { role: 'assistant', content: finalResponseToSave };
+             } else {
+                 // Should not happen if placeholder was added, but as fallback:
+                 newMessages.push({ role: 'assistant', content: finalResponseToSave });
+             }
+             return newMessages;
+         });
+
+
+        // Mark task as completed
+        setCompletedAiTasks(prev => new Set([...prev, task.id]));
+
+      } catch (dbError) {
+        console.error("Error saving final execution:", dbError);
+        setError("Failed to save final AI response.");
+        // Optionally update UI to show save error
+      }
+      // --- END SAVE FINAL EXECUTION ---
+
     } catch (error) {
-      console.error('Error:', error);
-      setError('Failed to execute task with AI');
-      
-      const errorMessage = { 
-        role: 'assistant', 
-        content: 'Sorry, I encountered an error processing your request.' 
-      };
-      setChatMessages(prev => [...prev, errorMessage]);
-      setTaskConversations(prev => ({
-        ...prev,
-        [task.id]: [...(prev[task.id] || []), errorMessage]
-      }));
+      console.error('[executeAiTask] Error:', error);
+      setError(`AI Task Error: ${error.message}`);
+      // ... error handling for UI ...
     } finally {
       setIsExecuting(false);
+      console.log(`[executeAiTask] Finished for task ${task.id}`);
     }
   };
 
@@ -606,16 +621,16 @@ function App() {
 
     try {
       setIsExecuting(true);
-      
+
       // Get current user
       const user = await getCurrentUser();
       const newUserMessage = { role: 'user', content: chatInput };
-      
+
       // Find the current active task draft to include its response
       const currentTaskDraft = taskDrafts.find(draft => draft.taskId === activeTaskId);
       console.log("Current task draft:", currentTaskDraft); // Debug log
       const currentResponse = currentTaskDraft?.response || '';
-      
+
       // Save user message to database
       await saveConversationMessage({
         taskId: activeTaskId,
@@ -623,105 +638,122 @@ function App() {
         role: 'user',
         content: chatInput
       });
-      
+
       // Update UI immediately with user message
       setChatMessages(prev => [...prev, newUserMessage]);
       setChatInput('');
-      
-      // Make server request with CONTEXT from previous response
-      console.log("Sending follow-up with context length:", currentResponse.length); // Debug log
-      const response = await fetch('http://localhost:3000/api/execute-task', {
+
+      // Make server request using the /api/followup endpoint
+      const response = await fetch('http://localhost:3000/api/followup', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           text: chatInput,
-          context: currentResponse, // Include current response as context
-          taskId: activeTaskId,
-          isFollowUp: true
+          originalText: taskExecutionsByTask[activeTaskId]?.[0]?.task, // Get original task text from latest execution
+          previousResponse: taskExecutionsByTask[activeTaskId]?.[0]?.response || '', // Get previous response from latest execution
+          taskId: activeTaskId
         })
       });
-      
+
       if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`);
+          const errorData = await response.json();
+          throw new Error(errorData.error || `Server error: ${response.status}`);
       }
-      
-      // Process streaming response
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      
-      let streamedResponse = '';
-      
-      // Add a placeholder for the assistant's response
-      setChatMessages(prev => [...prev, { role: 'assistant', content: 'Thinking...' }]);
-      
-      while (true) {
-        const { done, value } = await reader.read();
-        
-        if (done) {
-          break;
-        }
-        
-        // Process chunk
-        const chunk = decoder.decode(value);
-        const events = chunk.split('\n\n').filter(Boolean);
-        
-        for (const eventText of events) {
-          if (eventText.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(eventText.slice(6));
-              
-              if (data.type === 'content_chunk') {
-                streamedResponse += data.content;
-                
-                // Update UI with streaming response
-                setChatMessages(prev => {
-                  const newMessages = [...prev];
-                  const lastIndex = newMessages.length - 1;
-                  if (lastIndex >= 0 && newMessages[lastIndex].role === 'assistant') {
-                    newMessages[lastIndex] = { role: 'assistant', content: streamedResponse };
-                  }
-                  return newMessages;
-                });
-              }
-            } catch (e) {
-              console.error('Error parsing event data:', e);
-            }
-          }
-        }
-      }
-      
-      // Save the AI response to database
+
+      const result = await response.json();
+
+      // Update UI with assistant's response
+      const assistantMessage = { role: 'assistant', content: result.response };
+      setChatMessages(prev => [...prev, assistantMessage]);
+
+      // Save the assistant's response to conversation history
       await saveConversationMessage({
-        taskId: activeTaskId,
-        userId: user.id,
-        role: 'assistant',
-        content: streamedResponse
+          taskId: activeTaskId,
+          userId: user.id, // Ensure user is defined in this scope
+          role: 'assistant',
+          content: result.response
       });
-      
-      // Update the task draft with the new response
-      setTaskDrafts(prev => {
-        return prev.map(draft => 
-          draft.taskId === activeTaskId
-            ? { ...draft, response: streamedResponse }
-            : draft
-        );
+
+      // Save the new execution result to the database
+      const savedExecution = await saveTaskExecution({
+          taskId: activeTaskId,
+          userId: user.id, // Ensure user is defined
+          response: result.response,
+          searchResults: [] // Assuming no new search results for follow-up
       });
-      
+
+      // Create the new execution object for the state
+      const newExecution = {
+          executionId: savedExecution.id,
+          taskId: activeTaskId,
+          timestamp: new Date(savedExecution.timestamp).getTime(),
+          task: taskExecutionsByTask[activeTaskId]?.[0]?.task || '', // Reuse original task text
+          response: result.response,
+          searchResults: []
+      };
+
+      // Update the taskExecutionsByTask state correctly
+      setTaskExecutionsByTask(prev => ({
+          ...prev,
+          [activeTaskId]: [newExecution, ...(prev[activeTaskId] || [])] // Add new execution to the beginning
+      }));
+
       // Mark as completed if not already
       setCompletedAiTasks(prev => new Set([...prev, activeTaskId]));
-      
+
     } catch (error) {
       console.error('Chat error:', error);
-      setChatMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: 'Sorry, I encountered an error processing your request.' 
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Sorry, I encountered an error: ${error.message}`
       }]);
     } finally {
       setIsExecuting(false);
     }
   };
+
+  // Add helper functions for editing
+  const handleEditClick = (draft) => {
+    setEditingDraftId(draft.executionId);
+    setEditingDraftContent(draft.response);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingDraftId(null);
+    setEditingDraftContent('');
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingDraftId) return;
+
+    // Update the state optimistically
+    setTaskExecutionsByTask(prev => {
+      const updatedExecutionsForTask = (prev[activeTaskId] || []).map(exec =>
+        exec.executionId === editingDraftId
+          ? { ...exec, response: editingDraftContent }
+          : exec
+      );
+      return { ...prev, [activeTaskId]: updatedExecutionsForTask };
+    });
+
+    // TODO: Persist the change to the database
+    // You'll need a function like `updateTaskExecutionResponse(editingDraftId, editingDraftContent)`
+    // in supabaseClient.js and potentially call it here.
+    // Example:
+    // try {
+    //   await updateTaskExecutionResponse(editingDraftId, editingDraftContent);
+    // } catch (error) {
+    //   console.error("Failed to save edit to DB:", error);
+    //   setError("Failed to save your changes.");
+    //   // Optionally revert optimistic update here
+    // }
+
+    // Clear editing state
+    handleCancelEdit();
+  };
+
 
   const navItems = [
     { id: 'inbox', icon: InboxIcon, label: 'Inbox' },
@@ -792,99 +824,134 @@ function App() {
     }
 
     if (activeTab === 'AI') {
+      const currentExecutions = taskExecutionsByTask[activeTaskId] || [];
+
       return (
         <div className="flex-1 flex flex-col md:flex-row h-full overflow-hidden">
-          {/* Main Chat Content Area */}
+          {/* Main Content Area */}
           <div className="flex-1 flex flex-col h-full overflow-hidden">
-            {/* Task response area - adjust height to leave space for chat */}
+            {/* Drafts display area */}
             <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-0">
-              {taskDrafts.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center p-8">
-                  <div className="bg-blue-50 p-4 rounded-full mb-4">
-                    <SparklesIcon className="h-10 w-10 text-blue-500 opacity-70" />
-                  </div>
-                  <h3 className="text-lg font-medium text-gray-700 mb-2">AI Assistant</h3>
-                  <p className="text-gray-500 max-w-sm mx-auto mb-6">
-                    Select an AI-executable task from the right panel to start working with your AI assistant.
-                  </p>
-                </div>
-              ) : activeTaskId ? (
-                // Show only the active task if there's an active task ID
-                <div className="space-y-4 pb-4">
-                  {taskDrafts
-                    .filter(draft => draft.taskId === activeTaskId)
-                    .map((draft, index) => (
-                      <div key={draft.taskId} className="bg-white rounded-lg shadow-sm p-5 border border-gray-100">
-                        {/* Task display... */}
-                        <div className="prose prose-sm w-full max-w-none overflow-hidden break-words text-sm text-gray-600 bg-gray-50 p-4 rounded-lg">
-                          <div className="overflow-x-auto">
-                            <ReactMarkdown>{draft.response || "No response available"}</ReactMarkdown>
+              {!activeTaskId ? (
+                 <div className="h-full flex flex-col items-center justify-center text-center p-8">
+                    {/* ... (Empty state when no task is selected) ... */}
+                     <h3 className="text-lg font-medium text-gray-700 mb-2">AI Assistant</h3>
+                     <p className="text-gray-500 max-w-sm mx-auto mb-6">
+                        Select an AI-executable task from the right panel to view or generate drafts.
+                     </p>
+                 </div>
+              ) : currentExecutions.length === 0 && !isExecuting ? (
+                 <div className="h-full flex flex-col items-center justify-center text-center p-8">
+                     {/* ... (Empty state when task is selected but has no drafts yet) ... */}
+                     <h3 className="text-lg font-medium text-gray-700 mb-2">No Drafts Yet</h3>
+                     <p className="text-gray-500 max-w-sm mx-auto mb-6">
+                        This task hasn't been executed by the AI yet. The first draft will appear here once generated.
+                     </p>
+                 </div>
+              ) : (
+                <div className="space-y-6 pb-4"> {/* Increased spacing between drafts */}
+                  {currentExecutions.map((draft, index) => {
+                    const isEditingThisDraft = editingDraftId === draft.executionId;
+                    return (
+                      <div key={draft.executionId} className={`bg-white rounded-lg shadow-md p-5 border ${isEditingThisDraft ? 'border-blue-300 ring-2 ring-blue-200' : 'border-gray-200'} relative group transition-all`}>
+                        {/* Draft Header */}
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="text-xs text-gray-500">
+                            Draft {currentExecutions.length - index} (Generated: {new Date(draft.timestamp).toLocaleString()})
+                          </div>
+                          {/* Action Buttons */}
+                          <div className={`flex items-center gap-2 transition-opacity ${isEditingThisDraft ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                            {isEditingThisDraft ? (
+                              <>
+                                <button
+                                  onClick={handleSaveEdit}
+                                  title="Save changes"
+                                  className="flex items-center gap-1 px-2 py-1 text-xs bg-green-100 hover:bg-green-200 text-green-700 rounded transition-colors"
+                                >
+                                  <CheckIcon className="h-3 w-3" />
+                                  <span>Save</span>
+                                </button>
+                                <button
+                                  onClick={handleCancelEdit}
+                                  title="Cancel edit"
+                                  className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 rounded transition-colors"
+                                >
+                                  <XMarkIcon className="h-3 w-3" />
+                                  <span>Cancel</span>
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => handleEditClick(draft)}
+                                  title="Edit response"
+                                  className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 rounded transition-colors"
+                                >
+                                  <PencilIcon className="h-3 w-3" />
+                                  <span>Edit</span>
+                                </button>
+                                <button
+                                  onClick={() => navigator.clipboard.writeText(draft.response)}
+                                  title="Copy response"
+                                  className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors"
+                                >
+                                  <ClipboardDocumentIcon className="h-3 w-3" />
+                                  <span>Copy</span>
+                                </button>
+                              </>
+                            )}
                           </div>
                         </div>
-                        {/* Rest of your rendering code... */}
+
+                        {/* Draft Content - Conditional Rendering */}
+                        {isEditingThisDraft ? (
+                          <textarea
+                            value={editingDraftContent}
+                            onChange={(e) => setEditingDraftContent(e.target.value)}
+                            className="w-full h-60 p-3 border border-gray-300 rounded-md focus:ring-blue-300 focus:border-blue-400 text-sm font-mono resize-y"
+                            placeholder="Edit Markdown content..."
+                          />
+                        ) : (
+                          <div className="prose prose-sm max-w-none overflow-hidden break-words text-sm text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-100 min-h-[100px]">
+                            <ReactMarkdown>{draft.response || "No response content."}</ReactMarkdown>
+                          </div>
+                        )}
+
+                        {/* Search Results (only show when not editing) */}
+                        {!isEditingThisDraft && draft.searchResults && draft.searchResults.length > 0 && (
+                          <div className="mt-4 pt-3 border-t border-gray-100">
+                            <div className="text-xs font-medium text-gray-600 mb-2">Sources used:</div>
+                            <div className="flex flex-wrap gap-2">
+                              {draft.searchResults.map((result, idx) => (
+                                <a
+                                  key={idx}
+                                  href={result.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="block text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 hover:text-blue-700 px-2 py-1 rounded truncate transition-colors max-w-[200px]"
+                                  title={result.title || "Source link"}
+                                >
+                                  {result.title || new URL(result.url).hostname}
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    ))}
-                </div>
-              ) : (
-                // If no active task ID but we have drafts, show all drafts
-                <div className="space-y-4 pb-4">
-                  {taskDrafts.map((draft, index) => (
-                    <div key={draft.taskId} className="bg-white rounded-lg shadow-sm p-5 border border-gray-100">
-                      {/* Task display... */}
-                    </div>
-                  ))}
+                    );
+                  })}
+                  {isExecuting && activeTaskId && (
+                    <div className="text-center py-4 text-gray-500">Generating new draft...</div>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* Fixed Chat Interface - Always visible at bottom */}
-            <div className="flex-none border-t border-gray-200 bg-white p-4">
-              <div className="mb-4 h-32 max-h-32 overflow-y-auto p-3 bg-gray-50 rounded-lg">
-                {chatMessages.length === 0 ? (
-                  <div className="text-center text-gray-400 text-sm py-2">
-                    Conversation will appear here
-                  </div>
-                ) : (
-                  chatMessages.map((message, index) => (
-                    <div 
-                      key={index} 
-                      className={`mb-2 p-2.5 rounded-lg ${
-                        message.role === 'user' 
-                          ? 'bg-blue-100 ml-12 text-blue-800' 
-                          : 'bg-gray-100 mr-12 text-gray-800'
-                      }`}
-                    >
-                      <div className="text-sm break-words">
-                        {message.content}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-              
-              <form 
-                onSubmit={handleChatSubmit}
-                className="flex gap-2"
-              >
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Ask a question or give a task..."
-                  className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 transition-all duration-200"
-                />
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg 
-                    hover:from-blue-600 hover:to-blue-700 transition-colors shadow-sm"
-                >
-                  Send
-                </button>
-              </form>
-            </div>
+            {/* Fixed Chat Interface */}
+            {/* ... existing chat rendering ... */}
           </div>
 
-          {/* Right Sidebar with Task Buttons */}
+          {/* Right Sidebar */}
           <div className="hidden md:block w-72 flex-none border-l border-gray-200 overflow-y-auto">
             <div className="p-4 bg-gradient-to-b from-blue-50 to-emerald-50 border-b border-gray-200">
               <h3 className="text-sm font-medium text-gray-700 mb-3">AI Tasks</h3>
