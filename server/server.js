@@ -7,7 +7,12 @@ import { auth } from 'express-oauth2-jwt-bearer';
 dotenv.config();
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: ['https://megat-task.vercel.app'],
+  methods: ['GET', 'POST', 'OPTIONS'],
+  credentials: true
+}));
+
 app.use(express.json());
 
 // Simplified middleware that always allows access
