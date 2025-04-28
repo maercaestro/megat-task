@@ -33,6 +33,9 @@ import {
   deleteTaskConversation
 } from './utils/supabaseClient';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || window.location.origin; 
+console.log(`Using API base URL: ${API_BASE_URL}`);
+
 function App() {
   const { isLoading, isAuthenticated, user } = useAuth();
 
@@ -183,7 +186,7 @@ function App() {
 
   const analyzeTask = async (text) => {
     try {
-      const response = await fetch('http://localhost:3000/api/analyze-task', {
+      const response = await fetch(`${API_BASE_URL}/api/analyze-task`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -312,17 +315,15 @@ function App() {
 
       console.log("Executing AI task:", { /* ... */ });
 
-      const response = await fetch('http://localhost:3000/api/execute-task', {
-        method: 'POST', // Ensure this is correctly specified
+      const response = await fetch(`${API_BASE_URL}/api/execute-task`, {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // Add any other headers if needed, e.g., Authorization
         },
         body: JSON.stringify({
           text: task.text,
           taskId: task.id,
-          isFollowUp: false // Explicitly set for initial execution
-          // context: null // Explicitly null if not needed
+          isFollowUp: false
         })
       });
 
@@ -644,15 +645,15 @@ function App() {
       setChatInput('');
 
       // Make server request using the /api/followup endpoint
-      const response = await fetch('http://localhost:3000/api/followup', {
+      const response = await fetch(`${API_BASE_URL}/api/followup`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           text: chatInput,
-          originalText: taskExecutionsByTask[activeTaskId]?.[0]?.task, // Get original task text from latest execution
-          previousResponse: taskExecutionsByTask[activeTaskId]?.[0]?.response || '', // Get previous response from latest execution
+          originalText: taskExecutionsByTask[activeTaskId]?.[0]?.task,
+          previousResponse: taskExecutionsByTask[activeTaskId]?.[0]?.response || '',
           taskId: activeTaskId
         })
       });
